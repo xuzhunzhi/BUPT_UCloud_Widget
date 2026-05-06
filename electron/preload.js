@@ -1,0 +1,35 @@
+const { contextBridge, ipcRenderer } = require("electron");
+
+contextBridge.exposeInMainWorld("buptHw", {
+  getCache: () => ipcRenderer.invoke("get-cache"),
+  getRefreshMinutes: () => ipcRenderer.invoke("get-refresh-minutes"),
+  runFetch: () => ipcRenderer.invoke("run-fetch"),
+  hasLoginSession: () => ipcRenderer.invoke("has-login-session"),
+  openLoginWindow: () => ipcRenderer.invoke("open-login-window"),
+  openManualLoginWindow: () => ipcRenderer.invoke("open-manual-login-window"),
+  closeLoginWindow: () => ipcRenderer.invoke("close-login-window"),
+  openWidgetWindow: () => ipcRenderer.invoke("open-widget-window"),
+  openHomeWindow: () => ipcRenderer.invoke("open-home-window"),
+  openSettingsWindow: () => ipcRenderer.invoke("open-settings-window"),
+  saveCredentials: (u, p) => ipcRenderer.invoke("save-credentials", { username: u, password: p }),
+  getCredentialsConfig: () => ipcRenderer.invoke("get-credentials-config"),
+  getStartupPrefs: () => ipcRenderer.invoke("get-startup-prefs"),
+  setStartupPrefs: (patch) => ipcRenderer.invoke("set-startup-prefs", patch),
+  getTheme: () => ipcRenderer.invoke("get-theme"),
+  setTheme: (t) => ipcRenderer.invoke("set-theme", t),
+  getSyncIntervalMinutes: () => ipcRenderer.invoke("get-sync-interval-minutes"),
+  setSyncIntervalMinutes: (min) => ipcRenderer.invoke("set-sync-interval-minutes", min),
+  onLoginSessionSaved: (fn) => {
+    ipcRenderer.on("login-session-saved", (_e, data) => fn(data));
+  },
+  onCacheUpdated: (fn) => {
+    ipcRenderer.on("cache-updated", () => fn());
+  },
+  onThemeChanged: (fn) => {
+    ipcRenderer.on("theme-changed", () => fn());
+  },
+  onPrefsChanged: (fn) => {
+    ipcRenderer.on("prefs-changed", () => fn());
+  },
+  completeOnboarding: (patch) => ipcRenderer.invoke("complete-onboarding", patch),
+});

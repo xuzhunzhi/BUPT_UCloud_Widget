@@ -1,0 +1,979 @@
+const { app, BrowserWindow, ipcMain, shell, session, nativeTheme, Notification, Tray, Menu, nativeImage } = require("electron");
+const path = require("path");
+const fs = require("fs");
+const { spawn } = require("child_process");
+const { parseDueToDate, hoursUntil } = require(path.join(__dirname, "lib", "due-parse.js"));
+
+/** 默认每半小时自动爬取（与 python/paths.py WIDGET_REFRESH_MINUTES_DEFAULT、config.yaml widget_refresh_minutes 一致） */
+const DEFAULT_WIDGET_REFRESH_MINUTES = 30;
+
+/** 与 login-shell.html 内 webview partition 一致 */
+const LOGIN_PARTITION = "persist:bupt-uclass-login";
+
+const STORAGE_STATE_FILENAME = "playwright_storage_state.json";
+
+const ELECTRON_PREFS_FILENAME = "electron_prefs.json";
+
+const DEFAULT_STARTUP_PREFS = {
+  /** 是否注册为本机登录项（开机启动应用） */
+  openAtLogin: true,
+  /** 启动时打开的窗口：home | widget | both */
+  startupOpenMode: "widget",
+  /** 首次引导是否已完成（重装后 prefs 保留则不再显示） */
+  onboardingDone: false,
+  /** 每次打开应用后是否自动执行一次 Python 抓取 */
+  autoSyncOnLaunch: true,
+  /** dark | light | system */
+  theme: "system",
+  /** 待办系统通知 */
+  alertEnabled: true,
+  alertThreeDay: true,
+  alertOneDay: true,
+  alertUrgent: true,
+  /** 各档位内同一条目最小重复提醒间隔（分钟） */
+  alertCooldown3dMin: 360,
+  alertCooldown1dMin: 120,
+  alertCooldownUrgentMin: 30,
+  /** 后台扫描缓存、判断是否发通知的周期（分钟） */
+  alertPollMinutes: 15,
+};
+
+const ALERT_NOTIFY_FILENAME = "alert_notify_state.json";
+
+let alertPollTimer = null;
+
+function getElectronPrefsPath() {
+  return path.join(getDataDir(), ELECTRON_PREFS_FILENAME);
+}
+
+function readElectronPrefs() {
+  try {
+    const raw = fs.readFileSync(getElectronPrefsPath(), "utf8");
+    const j = JSON.parse(raw);
+    return {
+      ...DEFAULT_STARTUP_PREFS,
+      ...j,
+    };
+  } catch (_) {
+    return { ...DEFAULT_STARTUP_PREFS };
+  }
+}
+
+function writeElectronPrefs(next) {
+  const merged = { ...readElectronPrefs(), ...next };
+  fs.writeFileSync(getElectronPrefsPath(), JSON.stringify(merged, null, 2), "utf8");
+  return merged;
+}
+
+/** 旧版仅有 prefs、无首启字段：视为已使用过本应用，不强制再看向导 */
+function migrateLegacyElectronPrefsOnce() {
+  const p = getElectronPrefsPath();
+  if (!fs.existsSync(p)) return;
+  try {
+    const j = JSON.parse(fs.readFileSync(p, "utf8"));
+    const patch = {};
+    if (!Object.prototype.hasOwnProperty.call(j, "onboardingDone")) {
+      patch.onboardingDone = true;
+    }
+    if (!Object.prototype.hasOwnProperty.call(j, "startupOpenMode")) {
+      patch.startupOpenMode = "home";
+    }
+    if (Object.keys(patch).length > 0) {
+      writeElectronPrefs(patch);
+    }
+  } catch (e) {
+    console.error("migrateLegacyElectronPrefsOnce", e);
+  }
+}
+
+/** 已有登录会话文件时跳过首启（例如 prefs 丢失但 session 仍在） */
+function ensureOnboardingCompleteIfSessionExists() {
+  try {
+    if (!fs.existsSync(getStorageStatePath())) return;
+    const prefs = readElectronPrefs();
+    if (prefs.onboardingDone) return;
+    writeElectronPrefs({ onboardingDone: true });
+  } catch (e) {
+    console.error("ensureOnboardingCompleteIfSessionExists", e);
+  }
+}
+
+function normalizeStartupOpenMode(m) {
+  if (m === "widget" || m === "both" || m === "home") return m;
+  return "home";
+}
+
+function applyStartupWindows(prefs) {
+  const mode = normalizeStartupOpenMode(prefs.startupOpenMode);
+  if (mode === "home" || mode === "both") createHomeWindow();
+  if (mode === "widget" || mode === "both") createWidgetWindow();
+}
+
+function applyOpenAtLogin(enabled) {
+  const on = !!enabled;
+  try {
+    if (app.isPackaged) {
+      app.setLoginItemSettings({
+        openAtLogin: on,
+        path: process.execPath,
+      });
+    } else {
+      app.setLoginItemSettings({
+        openAtLogin: on,
+        path: process.execPath,
+        args: [path.resolve(getRepoRoot())],
+      });
+    }
+  } catch (e) {
+    console.error("setLoginItemSettings failed:", e);
+  }
+}
+
+function broadcastCacheUpdated() {
+  BrowserWindow.getAllWindows().forEach((w) => {
+    if (w && !w.isDestroyed() && w !== loginWindow) {
+      w.webContents.send("cache-updated");
+    }
+  });
+}
+
+function scheduleLaunchSync() {
+  const prefs = readElectronPrefs();
+  if (prefs.autoSyncOnLaunch === false) return;
+  const delayMs = 2500;
+  setTimeout(() => {
+    runFetch();
+  }, delayMs);
+}
+
+function getConfigYamlPath() {
+  return path.join(getDataDir(), "config.yaml");
+}
+
+function setWidgetRefreshMinutesInConfig(minutes) {
+  const n = Math.max(1, Math.min(24 * 60, parseInt(minutes, 10) || DEFAULT_WIDGET_REFRESH_MINUTES));
+  const cfgPath = getConfigYamlPath();
+  let body = "";
+  if (fs.existsSync(cfgPath)) {
+    body = fs.readFileSync(cfgPath, "utf8");
+  } else {
+    const example = path.join(getRepoRoot(), "python", "config.example.yaml");
+    if (fs.existsSync(example)) body = fs.readFileSync(example, "utf8");
+  }
+  if (/^\s*widget_refresh_minutes:/m.test(body)) {
+    body = body.replace(/^\s*widget_refresh_minutes:\s*\d+/m, `widget_refresh_minutes: ${n}`);
+  } else {
+    body += (body.endsWith("\n") ? "" : "\n") + `widget_refresh_minutes: ${n}\n`;
+  }
+  fs.mkdirSync(getDataDir(), { recursive: true });
+  fs.writeFileSync(cfgPath, body, "utf8");
+  return n;
+}
+
+function readAlertNotifyState() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(getDataDir(), ALERT_NOTIFY_FILENAME), "utf8"));
+  } catch (_) {
+    return {};
+  }
+}
+
+function writeAlertNotifyState(obj) {
+  fs.writeFileSync(
+    path.join(getDataDir(), ALERT_NOTIFY_FILENAME),
+    JSON.stringify(obj, null, 2),
+    "utf8"
+  );
+}
+
+function tierForHours(h) {
+  if (h > 0 && h <= 24) return "urgent";
+  if (h > 24 && h <= 48) return "oneDay";
+  if (h > 48 && h <= 72) return "threeDay";
+  return null;
+}
+
+function tierNotificationTitle(tier) {
+  if (tier === "urgent") return "不足 24 小时";
+  if (tier === "oneDay") return "约 1～2 天内截止";
+  if (tier === "threeDay") return "约 2～3 天内截止";
+  return "待办";
+}
+
+function runAlertCheck() {
+  const prefs = readElectronPrefs();
+  if (!prefs.alertEnabled) return;
+  if (!Notification.isSupported()) return;
+
+  const cache = readCacheFile();
+  const items = cache.items || [];
+  const state = readAlertNotifyState();
+  const now = Date.now();
+
+  const coolMs = {
+    threeDay: Math.max(30, (prefs.alertCooldown3dMin ?? 360) * 60 * 1000),
+    oneDay: Math.max(15, (prefs.alertCooldown1dMin ?? 120) * 60 * 1000),
+    urgent: Math.max(5, (prefs.alertCooldownUrgentMin ?? 30) * 60 * 1000),
+  };
+
+  for (const it of items) {
+    const dueStr = it.due || "";
+    const dt = parseDueToDate(dueStr);
+    if (!dt) continue;
+    const h = hoursUntil(dt);
+    if (h <= 0) continue;
+
+    const tier = tierForHours(h);
+    if (!tier) continue;
+    if (tier === "threeDay" && prefs.alertThreeDay === false) continue;
+    if (tier === "oneDay" && prefs.alertOneDay === false) continue;
+    if (tier === "urgent" && prefs.alertUrgent === false) continue;
+
+    const ck =
+      tier === "threeDay" ? "threeDay" : tier === "oneDay" ? "oneDay" : "urgent";
+    const cd = coolMs[ck];
+    const key = `${ck}|${String(it.title || "").slice(0, 120)}|${dueStr.slice(0, 120)}`;
+    const prev = state[key];
+    if (prev && now - prev.at < cd) continue;
+
+    const n = new Notification({
+      title: `作业待办 · ${tierNotificationTitle(tier)}`,
+      body: `${it.title || "（无标题）"}\n${dueStr}`,
+    });
+    n.show();
+    state[key] = { at: now, tier: ck };
+  }
+  writeAlertNotifyState(state);
+}
+
+function restartAlertScheduler() {
+  if (alertPollTimer) {
+    clearInterval(alertPollTimer);
+    alertPollTimer = null;
+  }
+  const prefs = readElectronPrefs();
+  if (!prefs.alertEnabled) return;
+  const poll = Math.max(5, Math.min(120, parseInt(prefs.alertPollMinutes, 10) || 15));
+  alertPollTimer = setInterval(() => {
+    try {
+      runAlertCheck();
+    } catch (e) {
+      console.error("runAlertCheck", e);
+    }
+  }, poll * 60 * 1000);
+  try {
+    runAlertCheck();
+  } catch (e) {
+    console.error("runAlertCheck", e);
+  }
+}
+
+function broadcastThemeChanged() {
+  BrowserWindow.getAllWindows().forEach((w) => {
+    if (w && !w.isDestroyed()) {
+      w.webContents.send("theme-changed");
+    }
+  });
+}
+
+function broadcastPrefsChanged() {
+  BrowserWindow.getAllWindows().forEach((w) => {
+    if (w && !w.isDestroyed()) {
+      w.webContents.send("prefs-changed");
+    }
+  });
+}
+
+function getRepoRoot() {
+  if (app.isPackaged) {
+    return path.dirname(process.execPath);
+  }
+  return path.join(__dirname, "..");
+}
+
+function getDataDir() {
+  if (app.isPackaged) {
+    return app.getPath("userData");
+  }
+  return getRepoRoot();
+}
+
+function getStorageStatePath() {
+  return path.join(getDataDir(), STORAGE_STATE_FILENAME);
+}
+
+function getPortalUrlFromConfig() {
+  const fallback = "https://ucloud.bupt.edu.cn/uclass/index.html#/student/homePage";
+  const cfg = path.join(getDataDir(), "config.yaml");
+  if (!fs.existsSync(cfg)) return fallback;
+  try {
+    const t = fs.readFileSync(cfg, "utf8");
+    let m = t.match(/^\s*target_url:\s*(.+)$/m);
+    if (m) return stripYamlValue(m[1]);
+    m = t.match(/^\s*login_start_url:\s*(.+)$/m);
+    if (m) return stripYamlValue(m[1]);
+  } catch (_) {}
+  return fallback;
+}
+
+function stripYamlValue(line) {
+  let s = line.trim();
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1);
+  }
+  // 仅去掉 YAML 行尾注释（空格+#），保留 URL 哈希路由里的 #
+  const commentIdx = s.search(/\s#/);
+  if (commentIdx >= 0) {
+    s = s.slice(0, commentIdx).trim();
+  }
+  return s || "https://ucloud.bupt.edu.cn/uclass/index.html#/student/homePage";
+}
+
+function mapSameSiteForPlaywright(electronSameSite) {
+  if (electronSameSite == null) return "Lax";
+  const n = typeof electronSameSite === "number" ? electronSameSite : String(electronSameSite).toLowerCase();
+  if (n === 1 || n === "strict") return "Strict";
+  if (n === 2 || n === "lax") return "Lax";
+  if (n === 0 || n === "no_restriction" || n === "none") return "None";
+  if (n === "unspecified") return "Lax";
+  return "Lax";
+}
+
+function electronCookieToPlaywright(c) {
+  let expires = -1;
+  if (typeof c.expirationDate === "number" && !Number.isNaN(c.expirationDate)) {
+    expires = c.expirationDate;
+  }
+  const domain = (c.domain || "").trim();
+  if (!domain) return null;
+  return {
+    name: c.name,
+    value: c.value,
+    domain,
+    path: c.path && c.path.length ? c.path : "/",
+    expires,
+    httpOnly: Boolean(c.httpOnly),
+    secure: Boolean(c.secure),
+    sameSite: mapSameSiteForPlaywright(c.sameSite),
+  };
+}
+
+let loginWindow = null;
+let homeWindow = null;
+let widgetWindow = null;
+let settingsWindow = null;
+let onboardingWindow = null;
+let tray = null;
+
+function createTrayIcon() {
+  const size = 16;
+  const canvas = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      const cx = x - size / 2 + 0.5;
+      const cy = y - size / 2 + 0.5;
+      const d = Math.sqrt(cx * cx + cy * cy);
+      if (d < size / 2 - 1) {
+        canvas[i] = 0x4a;     // R
+        canvas[i + 1] = 0x9e; // G
+        canvas[i + 2] = 0xff; // B
+        canvas[i + 3] = 255;  // A
+      } else {
+        canvas[i + 3] = 0;
+      }
+    }
+  }
+  return nativeImage.createFromBuffer(canvas, { width: size, height: size });
+}
+
+function getOrCreateTray() {
+  if (tray && !tray.isDestroyed()) return tray;
+  const icon = createTrayIcon();
+  tray = new Tray(icon);
+  tray.setToolTip("北邮作业待办");
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      {
+        label: "显示主窗口",
+        click: () => {
+          createHomeWindow();
+          createWidgetWindow();
+        },
+      },
+      { type: "separator" },
+      {
+        label: "退出",
+        click: () => {
+          tray = null;
+          app.exit(0);
+        },
+      },
+    ])
+  );
+  tray.on("double-click", () => {
+    createHomeWindow();
+    createWidgetWindow();
+  });
+  return tray;
+}
+
+async function exportLoginSessionFromPartition() {
+  const ses = session.fromPartition(LOGIN_PARTITION);
+  const all = await ses.cookies.get({});
+  const filtered = all.filter(
+    (c) =>
+      (c.domain && c.domain.includes("bupt.edu.cn")) ||
+      (c.domain && String(c.domain).includes("ucloud"))
+  );
+  const src = filtered.length > 0 ? filtered : all;
+  const cookies = [];
+  for (const c of src) {
+    const pc = electronCookieToPlaywright(c);
+    if (pc) cookies.push(pc);
+  }
+  if (cookies.length === 0) {
+    throw new Error("未读取到有效 Cookie，请确认已在页面中完成登录。");
+  }
+
+  // 同时导出 localStorage（SPA 可能依赖 localStorage 中的 auth 数据）
+  const origins = [];
+  if (loginWindow && !loginWindow.isDestroyed()) {
+    try {
+      const localStorageData = await loginWindow.webContents.executeJavaScript(
+        `(function() {
+          try {
+            var keys = Object.keys(localStorage);
+            var items = [];
+            for (var i = 0; i < keys.length; i++) {
+              try { items.push({ name: keys[i], value: localStorage.getItem(keys[i]) }); }
+              catch(e) {}
+            }
+            return items;
+          } catch(e) { return []; }
+        })()`
+      );
+      if (localStorageData && localStorageData.length > 0) {
+        origins.push({
+          origin: "https://ucloud.bupt.edu.cn",
+          localStorage: localStorageData,
+        });
+      }
+    } catch (e) {
+      console.error("exportLocalStorage error:", e);
+    }
+  }
+
+  const state = { cookies, origins };
+  fs.writeFileSync(getStorageStatePath(), JSON.stringify(state, null, 2), "utf8");
+  return { ok: true, cookieCount: cookies.length, localStorageKeys: origins.length > 0 ? origins[0].localStorage.length : 0 };
+}
+
+function getPythonAppPath() {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "python", "app.py");
+  }
+  return path.join(getRepoRoot(), "python", "app.py");
+}
+
+function getPythonPath() {
+  if (process.env.BUPT_PYTHON && fs.existsSync(process.env.BUPT_PYTHON)) {
+    return process.env.BUPT_PYTHON;
+  }
+  const repo = getRepoRoot();
+  const venvWin = path.join(repo, ".venv", "Scripts", "python.exe");
+  if (fs.existsSync(venvWin)) return venvWin;
+  const venvUnix = path.join(repo, ".venv", "bin", "python");
+  if (fs.existsSync(venvUnix)) return venvUnix;
+  return process.platform === "win32" ? "python" : "python3";
+}
+
+function readCacheFile() {
+  const p = path.join(getDataDir(), "homework_cache.json");
+  if (!fs.existsSync(p)) {
+    return {
+      updated_at: "",
+      items: [],
+      _error: "尚未生成 homework_cache.json，请先「立即同步」。若首次使用需在本机安装 Python 依赖（见说明）。",
+    };
+  }
+  try {
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch (e) {
+    return { updated_at: "", items: [], _error: String(e.message) };
+  }
+}
+
+function getRefreshMinutes() {
+  const cfg = path.join(getDataDir(), "config.yaml");
+  if (!fs.existsSync(cfg)) return DEFAULT_WIDGET_REFRESH_MINUTES;
+  try {
+    const t = fs.readFileSync(cfg, "utf8");
+    const m = t.match(/widget_refresh_minutes:\s*(\d+)/);
+    if (m) return Math.max(1, parseInt(m[1], 10));
+  } catch (_) {}
+  return DEFAULT_WIDGET_REFRESH_MINUTES;
+}
+
+function runFetch() {
+  const py = getPythonPath();
+  const script = getPythonAppPath();
+  const env = { ...process.env, BUPT_DATA_DIR: getDataDir() };
+
+  return new Promise((resolve) => {
+    const logs = { stdout: "", stderr: "" };
+    const child = spawn(py, [script, "fetch"], {
+      cwd: getRepoRoot(),
+      env,
+      windowsHide: true,
+    });
+    child.stdout.on("data", (d) => {
+      logs.stdout += d.toString();
+    });
+    child.stderr.on("data", (d) => {
+      logs.stderr += d.toString();
+    });
+    child.on("error", (err) => {
+      broadcastCacheUpdated();
+      resolve({ ok: false, code: -1, logs, error: err.message });
+    });
+    child.on("close", (code) => {
+      const r = { ok: code === 0, code, logs, cache: readCacheFile() };
+      broadcastCacheUpdated();
+      resolve(r);
+    });
+  });
+}
+
+let manualLoginWindow = null;
+
+function createLoginWindow() {
+  if (loginWindow && !loginWindow.isDestroyed()) {
+    loginWindow.focus();
+    return;
+  }
+  loginWindow = new BrowserWindow({
+    width: 480,
+    height: 520,
+    resizable: false,
+    show: true,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  loginWindow.setMenuBarVisibility(false);
+  loginWindow.loadFile(path.join(__dirname, "login", "index.html"));
+  loginWindow.on("closed", () => {
+    loginWindow = null;
+  });
+}
+
+function createManualLoginWindow() {
+  if (manualLoginWindow && !manualLoginWindow.isDestroyed()) {
+    manualLoginWindow.focus();
+    return;
+  }
+  manualLoginWindow = new BrowserWindow({
+    width: 1024,
+    height: 720,
+    minWidth: 640,
+    minHeight: 480,
+    show: true,
+    webPreferences: {
+      preload: path.join(__dirname, "login-preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webviewTag: true,
+    },
+  });
+  manualLoginWindow.setMenuBarVisibility(false);
+  manualLoginWindow.loadFile(path.join(__dirname, "login-shell.html"));
+  manualLoginWindow.on("closed", () => {
+    manualLoginWindow = null;
+  });
+}
+
+function attachExternalLinks(win) {
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: "deny" };
+  });
+}
+
+function createHomeWindow() {
+  if (homeWindow && !homeWindow.isDestroyed()) {
+    homeWindow.show();
+    homeWindow.focus();
+    return;
+  }
+  homeWindow = new BrowserWindow({
+    width: 960,
+    height: 640,
+    minWidth: 520,
+    minHeight: 420,
+    show: true,
+    alwaysOnTop: false,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  homeWindow.setMenuBarVisibility(false);
+  homeWindow.loadFile(path.join(__dirname, "home", "index.html"));
+  attachExternalLinks(homeWindow);
+  homeWindow.on("close", (e) => {
+    if (tray && !tray.isDestroyed()) {
+      e.preventDefault();
+      homeWindow.hide();
+    }
+  });
+  homeWindow.on("closed", () => {
+    homeWindow = null;
+  });
+}
+
+function createWidgetWindow() {
+  if (widgetWindow && !widgetWindow.isDestroyed()) {
+    widgetWindow.show();
+    widgetWindow.focus();
+    return;
+  }
+  widgetWindow = new BrowserWindow({
+    width: 380,
+    height: 460,
+    minWidth: 300,
+    minHeight: 280,
+    show: true,
+    alwaysOnTop: true,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  widgetWindow.setMenuBarVisibility(false);
+  widgetWindow.loadFile(path.join(__dirname, "widget", "index.html"));
+  attachExternalLinks(widgetWindow);
+  widgetWindow.on("close", (e) => {
+    if (tray && !tray.isDestroyed()) {
+      e.preventDefault();
+      widgetWindow.hide();
+    }
+  });
+  widgetWindow.on("closed", () => {
+    widgetWindow = null;
+  });
+}
+
+function createSettingsWindow() {
+  if (settingsWindow && !settingsWindow.isDestroyed()) {
+    settingsWindow.focus();
+    return;
+  }
+  settingsWindow = new BrowserWindow({
+    width: 640,
+    height: 820,
+    minWidth: 480,
+    minHeight: 560,
+    show: true,
+    alwaysOnTop: false,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  settingsWindow.setMenuBarVisibility(false);
+  settingsWindow.loadFile(path.join(__dirname, "settings", "index.html"));
+  attachExternalLinks(settingsWindow);
+  settingsWindow.on("closed", () => {
+    settingsWindow = null;
+  });
+}
+
+function createOnboardingWindow() {
+  if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+    onboardingWindow.focus();
+    return;
+  }
+  onboardingWindow = new BrowserWindow({
+    width: 560,
+    height: 680,
+    minWidth: 480,
+    minHeight: 560,
+    show: true,
+    alwaysOnTop: false,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  onboardingWindow.setMenuBarVisibility(false);
+  onboardingWindow.loadFile(path.join(__dirname, "onboarding", "index.html"));
+  attachExternalLinks(onboardingWindow);
+  onboardingWindow.on("closed", () => {
+    onboardingWindow = null;
+  });
+}
+
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    // 已有实例运行时再次启动 → 激活已有窗口
+    const wins = BrowserWindow.getAllWindows();
+    if (wins.length > 0) {
+      const visible = wins.filter((w) => w.isVisible());
+      if (visible.length > 0) {
+        visible[0].focus();
+        visible[0].show();
+      } else {
+        wins[0].show();
+        wins[0].focus();
+      }
+    }
+  });
+
+  app.whenReady().then(() => {
+  if (process.platform === "win32") {
+    app.setAppUserModelId("edu.bupt.ucloud.homework.widget");
+  }
+
+  nativeTheme.on("updated", () => {
+    broadcastThemeChanged();
+  });
+
+  getOrCreateTray();
+
+  migrateLegacyElectronPrefsOnce();
+  ensureOnboardingCompleteIfSessionExists();
+  const startupPrefs = readElectronPrefs();
+  applyOpenAtLogin(startupPrefs.openAtLogin);
+
+  ipcMain.handle("get-cache", () => readCacheFile());
+  ipcMain.handle("get-refresh-minutes", () => getRefreshMinutes());
+  ipcMain.handle("run-fetch", () => runFetch());
+  ipcMain.handle("save-credentials", async (_e, { username, password }) => {
+    const u = String(username || "").trim();
+    const p = String(password || "").trim();
+    // 清空凭据
+    if (!u && !p) {
+      const cfgPath = getConfigYamlPath();
+      try {
+        let body = "";
+        if (fs.existsSync(cfgPath)) {
+          body = fs.readFileSync(cfgPath, "utf8").replace(/\r\n/g, "\n");
+        }
+        if (body) {
+          const setKey = (text, key, value) => {
+            const re = new RegExp("^(\\s*" + key + ":\\s*).*$", "m");
+            if (re.test(text)) return text.replace(re, "$1" + value);
+            return text.replace(/\n?$/, "\n" + key + ": " + value + "\n");
+          };
+          body = setKey(body, "auto_login", "false");
+          body = setKey(body, "username", '""');
+          body = setKey(body, "password", '""');
+          fs.mkdirSync(getDataDir(), { recursive: true });
+          fs.writeFileSync(cfgPath, body, "utf8");
+        }
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: String(e.message || e) };
+      }
+    }
+    if (!u || !p) return { ok: false, error: "学号和密码必须同时填写" };
+    const cfgPath = getConfigYamlPath();
+    let body = "";
+    try {
+      if (fs.existsSync(cfgPath)) {
+        body = fs.readFileSync(cfgPath, "utf8").replace(/\r\n/g, "\n");
+      } else {
+        const example = path.join(getRepoRoot(), "python", "config.example.yaml");
+        if (fs.existsSync(example)) body = fs.readFileSync(example, "utf8").replace(/\r\n/g, "\n");
+      }
+      const setKey = (text, key, value) => {
+        const re = new RegExp("^(\\s*" + key + ":\\s*).*$", "m");
+        if (re.test(text)) return text.replace(re, "$1" + value);
+        return text.replace(/\n?$/, "\n" + key + ": " + value + "\n");
+      };
+      body = setKey(body, "auto_login", "true");
+      body = setKey(body, "username", '"' + u + '"');
+      body = setKey(body, "password", '"' + p + '"');
+      fs.mkdirSync(getDataDir(), { recursive: true });
+      fs.writeFileSync(cfgPath, body, "utf8");
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: String(e.message || e) };
+    }
+  });
+  ipcMain.handle("get-credentials-config", () => {
+    const cfgPath = getConfigYamlPath();
+    try {
+      if (!fs.existsSync(cfgPath)) return { auto_login: false, username: "", password: "" };
+      const body = fs.readFileSync(cfgPath, "utf8").replace(/\r\n/g, "\n");
+      const m = (key) => {
+        const re = new RegExp("^\\s*" + key + ":\\s*(.+)$", "m");
+        const match = body.match(re);
+        if (!match) return "";
+        let v = match[1].trim().replace(/\r$/, '');
+        if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+          v = v.slice(1, -1);
+        }
+        return v;
+      };
+      return {
+        auto_login: m("auto_login") === "true",
+        username: m("username"),
+        password: m("password"),
+      };
+    } catch (_) {
+      return { auto_login: false, username: "", password: "" };
+    }
+  });
+  ipcMain.handle("get-startup-prefs", () => {
+    let loginItem = {};
+    try {
+      loginItem = app.getLoginItemSettings();
+    } catch (_) {}
+    return {
+      ...readElectronPrefs(),
+      isPackaged: app.isPackaged,
+      loginItemOpenAtLogin: loginItem.openAtLogin,
+    };
+  });
+  ipcMain.handle("set-startup-prefs", (_e, patch) => {
+    const p = patch || {};
+    const next = { ...p };
+    if (next.startupOpenMode != null) {
+      next.startupOpenMode = normalizeStartupOpenMode(String(next.startupOpenMode));
+    }
+    const merged = writeElectronPrefs(next);
+    if (typeof merged.openAtLogin === "boolean") {
+      applyOpenAtLogin(merged.openAtLogin);
+    }
+    restartAlertScheduler();
+    broadcastPrefsChanged();
+    return readElectronPrefs();
+  });
+  ipcMain.handle("get-theme", () => readElectronPrefs().theme || "system");
+  ipcMain.handle("set-theme", (_e, theme) => {
+    const t = ["dark", "light", "system"].includes(theme) ? theme : "system";
+    writeElectronPrefs({ theme: t });
+    broadcastThemeChanged();
+    return t;
+  });
+  ipcMain.handle("get-sync-interval-minutes", () => getRefreshMinutes());
+  ipcMain.handle("set-sync-interval-minutes", (_e, min) => {
+    const n = setWidgetRefreshMinutesInConfig(min);
+    broadcastPrefsChanged();
+    return n;
+  });
+  ipcMain.handle("open-settings-window", () => {
+    createSettingsWindow();
+    return { ok: true };
+  });
+  ipcMain.handle("has-login-session", () => fs.existsSync(getStorageStatePath()));
+  ipcMain.handle("open-login-window", () => {
+    createLoginWindow();
+    return { ok: true };
+  });
+  ipcMain.handle("open-manual-login-window", () => {
+    createManualLoginWindow();
+    return { ok: true };
+  });
+  ipcMain.handle("open-widget-window", () => {
+    createWidgetWindow();
+    return { ok: true };
+  });
+  ipcMain.handle("open-home-window", () => {
+    createHomeWindow();
+    return { ok: true };
+  });
+  ipcMain.handle("login-shell-get-url", () => ({ url: getPortalUrlFromConfig() }));
+  ipcMain.handle("export-login-session", async () => {
+    try {
+      const r = await exportLoginSessionFromPartition();
+      BrowserWindow.getAllWindows().forEach((w) => {
+        if (w !== manualLoginWindow && !w.isDestroyed()) {
+          w.webContents.send("login-session-saved", r);
+        }
+      });
+      if (manualLoginWindow && !manualLoginWindow.isDestroyed()) {
+        manualLoginWindow.close();
+      }
+      return r;
+    } catch (e) {
+      return { ok: false, error: String(e.message || e) };
+    }
+  });
+  ipcMain.handle("close-login-window", () => {
+    if (loginWindow && !loginWindow.isDestroyed()) {
+      loginWindow.close();
+    }
+    return { ok: true };
+  });
+
+  ipcMain.handle("complete-onboarding", (_e, patch) => {
+    const safe = typeof patch === "object" && patch ? { ...patch } : {};
+    if (safe.startupOpenMode != null) {
+      safe.startupOpenMode = normalizeStartupOpenMode(String(safe.startupOpenMode));
+    }
+    const merged = writeElectronPrefs({
+      ...safe,
+      onboardingDone: true,
+    });
+    if (typeof merged.openAtLogin === "boolean") {
+      applyOpenAtLogin(merged.openAtLogin);
+    }
+    restartAlertScheduler();
+    broadcastThemeChanged();
+    broadcastPrefsChanged();
+    if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+      onboardingWindow.close();
+    }
+    applyStartupWindows(merged);
+    return { ok: true };
+  });
+
+  const prefsForUi = readElectronPrefs();
+  if (!prefsForUi.onboardingDone) {
+    createOnboardingWindow();
+  } else if (!fs.existsSync(getStorageStatePath())) {
+    // 没有登录会话 → 显示登录界面
+    createLoginWindow();
+  } else {
+    applyStartupWindows(prefsForUi);
+  }
+  scheduleLaunchSync();
+  restartAlertScheduler();
+
+  app.on("activate", () => {
+    const visibleWindows = BrowserWindow.getAllWindows().filter((w) => w.isVisible());
+    if (visibleWindows.length === 0) {
+      getOrCreateTray();
+      createHomeWindow();
+      createWidgetWindow();
+    }
+  });
+});
+
+app.on("window-all-closed", () => {
+  // 不退出：默认收纳到任务栏托盘图标
+});
+
+}

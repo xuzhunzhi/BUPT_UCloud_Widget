@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';"
+    />
+    <title>欢迎使用 · 云邮作业待办</title>
+    <link rel="stylesheet" href="../shared/themes.css" />
+    <link rel="stylesheet" href="onboarding.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="page-head">
+        <h1>欢迎使用</h1>
+        <p class="lead">请先在应用内登录教学空间，再完成简要设置即可使用。</p>
+      </header>
+
+      <section class="panel" id="panel-step1">
+        <h2>1. 登录</h2>
+        <p class="desc">输入学号和密码，凭据仅保存在本机用于自动登录。</p>
+        <div class="field-row">
+          <label for="cred-user">学号</label>
+          <input type="text" id="cred-user" placeholder="2024210913" autocomplete="username" />
+        </div>
+        <div class="field-row">
+          <label for="cred-pass">密码</label>
+          <input type="password" id="cred-pass" placeholder="校园网密码" autocomplete="current-password" />
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn primary btn-save-cred" id="btn-save-cred">保存凭据</button>
+        </div>
+        <p class="desc sm">也可以<a href="#" id="link-webview-login">通过网页手动登录</a>（保存 Cookie 方式）。</p>
+        <p class="status-line" id="login-status">尚未保存凭据</p>
+      </section>
+
+      <section class="panel muted-panel" id="panel-step2">
+        <h2>2. 外观与启动</h2>
+        <p class="desc">以下为常用默认，之后可在「设置」中随时修改。</p>
+
+        <h3 class="sub">主题</h3>
+        <div class="radio-group" id="theme-group">
+          <label class="radio"
+            ><input type="radio" name="theme" value="dark" /> 深色</label
+          >
+          <label class="radio"
+            ><input type="radio" name="theme" value="light" /> 浅色</label
+          >
+          <label class="radio"
+            ><input type="radio" name="theme" value="system" /> 跟随系统</label
+          >
+        </div>
+
+        <h3 class="sub">启动时打开</h3>
+        <div class="radio-group" id="startup-mode-group">
+          <label class="radio"
+            ><input type="radio" name="startupOpenMode" value="home" /> 仅主页</label
+          >
+          <label class="radio"
+            ><input type="radio" name="startupOpenMode" value="widget" /> 仅桌面小组件</label
+          >
+          <label class="radio"
+            ><input type="radio" name="startupOpenMode" value="both" /> 主页与小组件</label
+          >
+        </div>
+        <label class="check"
+          ><input type="checkbox" id="chk-boot" checked /> 开机自动启动本应用</label
+        >
+
+        <h3 class="sub">待办预警</h3>
+        <label class="check"
+          ><input type="checkbox" id="alert-master" checked /> 开启待办系统通知（可在设置中细调档位）</label
+        >
+
+        <p id="status" class="status" role="status"></p>
+        <button type="button" class="btn primary" id="btn-done" disabled>完成并进入应用</button>
+      </section>
+    </div>
+    <script src="../shared/theme-init.js"></script>
+    <script src="onboarding.js"></script>
+  </body>
+</html>

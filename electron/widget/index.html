@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';" />
+    <title>桌面小组件 · 作业待办</title>
+    <link rel="stylesheet" href="../shared/themes.css" />
+    <link rel="stylesheet" href="widget.css" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="title-wrap">
+        <h1 class="title">作业待办</h1>
+        <p class="subtitle">置顶桌面小组件 · 本地缓存</p>
+      </div>
+      <div class="header-actions">
+        <button id="btn-home" type="button" class="btn">主页</button>
+        <button id="btn-login" type="button" class="btn">登录</button>
+        <button id="btn-sync" type="button" class="btn primary">立即同步</button>
+      </div>
+    </header>
+    <p id="status" class="status">载入中…</p>
+    <main id="list" class="list" aria-live="polite"></main>
+    <footer class="footer">
+      <span id="meta-time" class="meta"></span>
+      <span id="meta-refresh" class="hint"></span>
+      <span class="hint">抓取由本机 Python + Playwright 完成</span>
+    </footer>
+    <script src="../shared/theme-init.js"></script>
+    <script src="widget.js"></script>
+  </body>
+</html>

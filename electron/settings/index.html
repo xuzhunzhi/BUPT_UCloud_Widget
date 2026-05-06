@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';"
+    />
+    <title>设置 · 云邮作业待办</title>
+    <link rel="stylesheet" href="../shared/themes.css" />
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="page-head">
+        <h1>设置</h1>
+        <p class="lead">主题、同步周期、待办预警与本机启动选项</p>
+      </header>
+
+      <section class="panel">
+        <h2>外观</h2>
+        <div class="radio-group" id="theme-group">
+          <label class="radio"
+            ><input type="radio" name="theme" value="dark" /> 深色</label
+          >
+          <label class="radio"
+            ><input type="radio" name="theme" value="light" /> 浅色</label
+          >
+          <label class="radio"
+            ><input type="radio" name="theme" value="system" /> 跟随系统</label
+          >
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>同步</h2>
+        <p class="desc">定时自动爬取并写入缓存的间隔（与 <code>config.yaml</code> 中一致）。</p>
+        <div class="field-row">
+          <label for="sync-minutes">自动同步间隔（分钟）</label>
+          <input type="number" id="sync-minutes" min="1" max="1440" step="1" />
+        </div>
+        <p class="hint" id="sync-hint"></p>
+      </section>
+
+      <section class="panel">
+        <h2>登录凭据</h2>
+        <p class="desc">保存学号和密码用于自动登录。凭据仅存储在本机 <code>config.yaml</code> 中。</p>
+        <div class="field-row">
+          <label for="cred-user-settings">学号</label>
+          <input type="text" id="cred-user-settings" placeholder="未设置" autocomplete="username" />
+        </div>
+        <div class="field-row">
+          <label for="cred-pass-settings">密码</label>
+          <input type="password" id="cred-pass-settings" placeholder="未设置" autocomplete="current-password" />
+        </div>
+        <p class="hint" id="cred-hint"></p>
+      </section>
+
+      <section class="panel">
+        <h2>启动</h2>
+        <label class="check"
+          ><input type="checkbox" id="chk-boot" /> 开机自动启动本应用</label
+        >
+        <p class="subhint" id="hint-boot"></p>
+        <label class="check"
+          ><input type="checkbox" id="chk-autosync" /> 启动后自动同步一次待办（约 2.5 秒后）</label
+        >
+        <p class="desc">每次启动应用时打开的窗口（可随时修改）。</p>
+        <div class="radio-group" id="startup-mode-group">
+          <label class="radio"
+            ><input type="radio" name="startupOpenMode" value="home" /> 仅主页</label
+          >
+          <label class="radio"
+            ><input type="radio" name="startupOpenMode" value="widget" /> 仅桌面小组件</label
+          >
+          <label class="radio"
+            ><input type="radio" name="startupOpenMode" value="both" /> 主页与小组件</label
+          >
+        </div>
+        <p class="hint">更改后将在<strong>下次启动</strong>应用时生效；本次会话可在主页手动打开小组件。</p>
+      </section>
+
+      <section class="panel">
+        <h2>待办预警</h2>
+        <p class="desc">
+          根据缓存中截止时间的文字解析结果，在到期前推送系统通知（需系统允许通知）。各档位独立开关；同一档位内按间隔重复提醒，避免刷屏。
+        </p>
+        <label class="check"
+          ><input type="checkbox" id="alert-master" /> 开启待办预警（总开关）</label
+        >
+
+        <h3 class="sub">预警档位（剩余时间）</h3>
+        <label class="check indent"
+          ><input type="checkbox" id="alert-3d" /> 约 2～3 天（48h～72h）：较低频检查</label
+        >
+        <label class="check indent"
+          ><input type="checkbox" id="alert-1d" /> 约 1～2 天（24h～48h）：中频</label
+        >
+        <label class="check indent"
+          ><input type="checkbox" id="alert-u" /> 不足 24 小时：高频</label
+        >
+
+        <h3 class="sub">同一条目同一档位内最小间隔（分钟）</h3>
+        <div class="grid-3">
+          <div class="field-row small">
+            <label for="cool-3d">2～3 天档</label>
+            <input type="number" id="cool-3d" min="30" max="1440" step="10" />
+          </div>
+          <div class="field-row small">
+            <label for="cool-1d">1～2 天档</label>
+            <input type="number" id="cool-1d" min="15" max="720" step="5" />
+          </div>
+          <div class="field-row small">
+            <label for="cool-u">&lt;24 小时</label>
+            <input type="number" id="cool-u" min="5" max="180" step="5" />
+          </div>
+        </div>
+
+        <div class="field-row">
+          <label for="poll-min">后台检查周期（分钟）</label>
+          <input type="number" id="poll-min" min="5" max="120" step="5" />
+        </div>
+        <p class="hint">
+          截止时间为抓取文本解析，若页面格式特殊可能无法识别。预警仅针对成功解析出日期时间的条目。
+        </p>
+      </section>
+
+      <p id="status" class="status"></p>
+      <footer class="foot">
+        <button type="button" class="btn primary" id="btn-save">保存</button>
+      </footer>
+    </div>
+    <script src="../shared/theme-init.js"></script>
+    <script src="settings.js"></script>
+  </body>
+</html>
