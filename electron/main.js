@@ -18,7 +18,7 @@ const DEFAULT_STARTUP_PREFS = {
   /** 是否注册为本机登录项（开机启动应用） */
   openAtLogin: true,
   /** 启动时打开的窗口：home | widget | both */
-  startupOpenMode: "widget",
+  startupOpenMode: "home",
   /** 首次引导是否已完成（重装后 prefs 保留则不再显示） */
   onboardingDone: false,
   /** 每次打开应用后是否自动执行一次 Python 抓取 */
@@ -105,7 +105,7 @@ function normalizeStartupOpenMode(m) {
 
 function applyStartupWindows(prefs) {
   const mode = normalizeStartupOpenMode(prefs.startupOpenMode);
-  if (mode === "home" || mode === "both") createHomeWindow();
+  if (mode === "home" || mode === "both") createMainWindow();
   if (mode === "widget" || mode === "both") createWidgetWindow();
 }
 
@@ -362,9 +362,8 @@ function electronCookieToPlaywright(c) {
 }
 
 let loginWindow = null;
-let homeWindow = null;
+let mainWindow = null;
 let widgetWindow = null;
-let settingsWindow = null;
 let onboardingWindow = null;
 let tray = null;
 
@@ -400,7 +399,7 @@ function getOrCreateTray() {
       {
         label: "显示主窗口",
         click: () => {
-          createHomeWindow();
+          createMainWindow();
           createWidgetWindow();
         },
       },
@@ -415,7 +414,7 @@ function getOrCreateTray() {
     ])
   );
   tray.on("double-click", () => {
-    createHomeWindow();
+    createMainWindow();
     createWidgetWindow();
   });
   return tray;
@@ -607,13 +606,13 @@ function attachExternalLinks(win) {
   });
 }
 
-function createHomeWindow() {
-  if (homeWindow && !homeWindow.isDestroyed()) {
-    homeWindow.show();
-    homeWindow.focus();
-    return;
+function createMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    return mainWindow;
   }
-  homeWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 960,
     height: 640,
     minWidth: 520,
@@ -627,18 +626,19 @@ function createHomeWindow() {
       sandbox: true,
     },
   });
-  homeWindow.setMenuBarVisibility(false);
-  homeWindow.loadFile(path.join(__dirname, "home", "index.html"));
-  attachExternalLinks(homeWindow);
-  homeWindow.on("close", (e) => {
+  mainWindow.setMenuBarVisibility(false);
+  mainWindow.loadFile(path.join(__dirname, "app", "index.html"));
+  attachExternalLinks(mainWindow);
+  mainWindow.on("close", (e) => {
     if (tray && !tray.isDestroyed()) {
       e.preventDefault();
-      homeWindow.hide();
+      mainWindow.hide();
     }
   });
-  homeWindow.on("closed", () => {
-    homeWindow = null;
+  mainWindow.on("closed", () => {
+    mainWindow = null;
   });
+  return mainWindow;
 }
 
 function createWidgetWindow() {
@@ -676,30 +676,8 @@ function createWidgetWindow() {
 }
 
 function createSettingsWindow() {
-  if (settingsWindow && !settingsWindow.isDestroyed()) {
-    settingsWindow.focus();
-    return;
-  }
-  settingsWindow = new BrowserWindow({
-    width: 640,
-    height: 820,
-    minWidth: 480,
-    minHeight: 560,
-    show: true,
-    alwaysOnTop: false,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-  settingsWindow.setMenuBarVisibility(false);
-  settingsWindow.loadFile(path.join(__dirname, "settings", "index.html"));
-  attachExternalLinks(settingsWindow);
-  settingsWindow.on("closed", () => {
-    settingsWindow = null;
-  });
+  const win = createMainWindow();
+  win.webContents.send("switch-tab", 3);
 }
 
 function createOnboardingWindow() {
@@ -901,7 +879,7 @@ if (!gotTheLock) {
     return { ok: true };
   });
   ipcMain.handle("open-home-window", () => {
-    createHomeWindow();
+    createMainWindow();
     return { ok: true };
   });
   ipcMain.handle("login-shell-get-url", () => ({ url: getPortalUrlFromConfig() }));
@@ -966,7 +944,7 @@ if (!gotTheLock) {
     const visibleWindows = BrowserWindow.getAllWindows().filter((w) => w.isVisible());
     if (visibleWindows.length === 0) {
       getOrCreateTray();
-      createHomeWindow();
+      createMainWindow();
       createWidgetWindow();
     }
   });

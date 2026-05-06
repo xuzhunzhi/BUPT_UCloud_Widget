@@ -235,7 +235,7 @@ def extract_homework_from_json_tree(data: Any, source_url: str = "") -> list[Hom
             lk = str(k)
             if time_key_re.search(lk):
                 due = vs[:220]
-            if re.search(r"courseName|courseTitle|班级|课程名", lk, re.I):
+            if re.search(r"courseName|courseTitle|siteName|班级|课程名", lk, re.I):
                 course = vs[:200]
         raw = blob[:500]
         key = (title[:240], due[:120])
@@ -1137,6 +1137,56 @@ def _paginate_api(
     return all_items
 
 
+def _get_course_count(page: Page, net_bucket: list[dict[str, Any]]) -> int:
+    """从网络捕获或直接 API 调用获取当前学期课程门数。"""
+    # Step 1: 尝试从 net_bucket 中找课程列表 API 的响应
+    for row in net_bucket:
+        url = row.get("url", "")
+        if "/site/list/student/current" in url:
+            data = row.get("data", {})
+            inner = (data.get("data") if isinstance(data, dict) else None) or {}
+            records = inner.get("records", [])
+            if records:
+                print(f"[课程计数] 从网络捕获获取到 {len(records)} 门课程", flush=True)
+                return len(records)
+
+    # Step 2: 直接调用课程列表 API
+    api_base = "https://apiucloud.bupt.edu.cn"
+    for row in net_bucket:
+        url = row.get("url", "")
+        m = re.match(r"(https?://[^/]+)", url)
+        if m and ("api" in url.lower() or "ucloud" in url.lower()):
+            api_base = m.group(1)
+            break
+
+    user_id = page.evaluate(
+        """() => {
+        try {
+            const store = JSON.parse(localStorage.getItem('store') || '{}');
+            return store.user_id || store.userId || null;
+        } catch(e) { return null; }
+    }"""
+    )
+    if not user_id:
+        print("[课程计数] 无法获取 userId", flush=True)
+        return 0
+
+    result = _fetch_api_from_page(
+        page,
+        f"{api_base}/ykt-site/site/list/student/current"
+        f"?userId={user_id}&siteRoleCode=2&size=999&current=1",
+    )
+    if result and isinstance(result, dict) and result.get("code") == 200:
+        inner = (result.get("data") if isinstance(result, dict) else None) or {}
+        records = inner.get("records", [])
+        if records:
+            print(f"[课程计数] 从 API 获取到 {len(records)} 门课程", flush=True)
+            return len(records)
+
+    print("[课程计数] 未能获取课程数", flush=True)
+    return 0
+
+
 def fetch_homework(
     headless: bool = True,
     debug_dump: bool = False,
@@ -1159,6 +1209,7 @@ def fetch_homework(
     parse_body_chars = max(5_000, min(parse_body_chars, 2_000_000))
 
     items: list[HomeworkItem] = []
+    course_count = 0
     use_storage = _use_playwright_storage_state(cfg)
 
     urls_to_try = _resolve_student_page_urls(cfg)
@@ -1437,6 +1488,9 @@ def fetch_homework(
                     )
                     print(f"[诊断] {summary['suggestion']}", flush=True)
 
+                # 在所有 URL 遍历完后提取课程数
+                course_count = _get_course_count(page, net_bucket)
+
             finally:
                 context.close()
                 if browser is not None:
@@ -1454,7 +1508,7 @@ def fetch_homework(
     if max_items is not None and len(items) > max_items:
         items = items[:max_items]
 
-    return items
+    return items, course_count
 
 
 def save_cache(
@@ -1462,12 +1516,14 @@ def save_cache(
     *,
     portal_url: str = "",
     warning: str | None = None,
+    course_count: int = 0,
 ) -> None:
     payload = {
         "schema_version": CACHE_SCHEMA_VERSION,
         "portal_url": portal_url,
         "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "items": [asdict(x) for x in items],
+        "course_count": course_count,
     }
     if warning:
         payload["_warning"] = warning

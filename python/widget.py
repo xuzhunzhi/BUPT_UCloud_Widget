@@ -29,8 +29,8 @@ def run_fetch_in_thread(log_fn):
             from homework_fetcher import fetch_homework, load_config, resolve_portal_url, save_cache
 
             cfg = load_config()
-            items = fetch_homework(headless=True, cfg=cfg)
-            save_cache(items, portal_url=resolve_portal_url(cfg))
+            items, course_count = fetch_homework(headless=True, cfg=cfg)
+            save_cache(items, portal_url=resolve_portal_url(cfg), course_count=course_count)
             log_fn(f"已更新，共 {len(items)} 条")
         except Exception as e:
             log_fn(f"更新失败: {e}")

@@ -32,4 +32,7 @@ contextBridge.exposeInMainWorld("buptHw", {
     ipcRenderer.on("prefs-changed", () => fn());
   },
   completeOnboarding: (patch) => ipcRenderer.invoke("complete-onboarding", patch),
+  onSwitchTab: (fn) => {
+    ipcRenderer.on("switch-tab", (_e, index) => fn(index));
+  },
 });

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';" />
+  <title>云邮作业待办</title>
+  <link rel="stylesheet" href="../shared/themes.css" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <div class="tab-viewport">
+      <div class="tab-panels" id="tab-panels">
+
+        <!-- 首页 Tab -->
+        <section class="tab-panel" id="tab-home">
+          <div class="tab-inner">
+            <div class="user-card">
+              <div class="user-avatar" id="user-avatar">?</div>
+              <div class="user-info">
+                <span class="user-name" id="user-name">未登录</span>
+                <span class="user-id" id="user-id"></span>
+              </div>
+            </div>
+            <div class="stat-cards-row">
+              <div class="stat-card">
+                <span class="stat-icon">&#x1F4DA;</span>
+                <span class="stat-value" id="stat-course-count">&mdash;</span>
+                <span class="stat-label">课程数</span>
+              </div>
+              <div class="stat-card">
+                <span class="stat-icon">&#x270D;&#xFE0F;</span>
+                <span class="stat-value" id="stat-task-count">&mdash;</span>
+                <span class="stat-label">待办数</span>
+              </div>
+            </div>
+            <div class="action-row">
+              <button class="btn primary" id="btn-sync-home">立即同步</button>
+              <button class="btn" id="btn-switch-user">切换用户</button>
+              <button class="btn accent" id="btn-open-widget-home">打开小组件</button>
+            </div>
+            <div class="cache-info">
+              <p class="cache-line" id="cache-updated">上次同步：&mdash;</p>
+              <p class="cache-line" id="cache-status">状态：就绪</p>
+            </div>
+            <p id="status-home" class="status"></p>
+          </div>
+        </section>
+
+        <!-- 代办 Tab -->
+        <section class="tab-panel" id="tab-tasks">
+          <div class="tab-inner">
+            <div class="placeholder-card">
+              <span class="placeholder-icon">&#x1F4CB;</span>
+              <h2>代办</h2>
+              <p>待办事项功能开发中，敬请期待。</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 课程 Tab -->
+        <section class="tab-panel" id="tab-courses">
+          <div class="tab-inner">
+            <div class="placeholder-card">
+              <span class="placeholder-icon">&#x1F393;</span>
+              <h2>课程</h2>
+              <p>课程管理功能开发中，敬请期待。</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 设置 Tab -->
+        <section class="tab-panel" id="tab-settings">
+          <div class="tab-inner">
+            <h2 class="tab-heading">设置</h2>
+
+            <div class="panel">
+              <p class="sub">外观</p>
+              <div class="radio-group theme-group">
+                <label class="radio"><input type="radio" name="theme" value="system" />跟随系统</label>
+                <label class="radio"><input type="radio" name="theme" value="light" />浅色</label>
+                <label class="radio"><input type="radio" name="theme" value="dark" />深色</label>
+              </div>
+            </div>
+
+            <div class="panel">
+              <p class="sub">同步</p>
+              <div class="field-row">
+                <label for="settings-sync-minutes">同步间隔（分钟）</label>
+                <input type="number" id="settings-sync-minutes" min="1" max="1440" value="30" />
+                <span class="hint" id="settings-sync-hint">当前写入仓库根目录 config.yaml（widget_refresh_minutes）。</span>
+              </div>
+            </div>
+
+            <div class="panel">
+              <p class="sub">登录凭据</p>
+              <div class="field-row">
+                <label for="settings-cred-user">学号</label>
+                <input type="text" id="settings-cred-user" placeholder="2024210913" />
+              </div>
+              <div class="field-row">
+                <label for="settings-cred-pass">密码</label>
+                <input type="password" id="settings-cred-pass" placeholder="校园网密码" />
+              </div>
+              <span class="hint" id="settings-cred-hint"></span>
+            </div>
+
+            <div class="panel">
+              <p class="sub">启动</p>
+              <div class="check">
+                <input type="checkbox" id="settings-chk-boot" />
+                <label for="settings-chk-boot">开机自启</label>
+              </div>
+              <div class="check">
+                <input type="checkbox" id="settings-chk-autosync" />
+                <label for="settings-chk-autosync">启动后自动同步</label>
+              </div>
+              <p class="sub">启动后打开</p>
+              <div class="radio-group">
+                <label class="radio"><input type="radio" name="startupOpenMode" value="home" />仅主窗口</label>
+                <label class="radio"><input type="radio" name="startupOpenMode" value="widget" />仅小组件</label>
+                <label class="radio"><input type="radio" name="startupOpenMode" value="both" />同时打开</label>
+              </div>
+              <span class="hint" id="settings-hint-boot"></span>
+            </div>
+
+            <div class="panel">
+              <p class="sub">待办预警</p>
+              <div class="check"><input type="checkbox" id="settings-alert-master" /><label for="settings-alert-master">启用预警通知</label></div>
+              <div class="indent">
+                <div class="check"><input type="checkbox" id="settings-alert-3d" /><label for="settings-alert-3d">截止前 3 天提醒</label></div>
+                <div class="check"><input type="checkbox" id="settings-alert-1d" /><label for="settings-alert-1d">截止前 1 天提醒</label></div>
+                <div class="check"><input type="checkbox" id="settings-alert-u" /><label for="settings-alert-u">紧急待办提醒</label></div>
+              </div>
+              <p class="sub">冷却时间（分钟）</p>
+              <div class="grid-3">
+                <div class="field-row">
+                  <label for="settings-cool-3d">3 天</label>
+                  <input type="number" id="settings-cool-3d" min="30" value="360" />
+                </div>
+                <div class="field-row">
+                  <label for="settings-cool-1d">1 天</label>
+                  <input type="number" id="settings-cool-1d" min="15" value="120" />
+                </div>
+                <div class="field-row">
+                  <label for="settings-cool-u">紧急</label>
+                  <input type="number" id="settings-cool-u" min="5" value="30" />
+                </div>
+              </div>
+              <div class="field-row" style="margin-top:10px">
+                <label for="settings-poll-min">检查间隔（分钟）</label>
+                <input type="number" id="settings-poll-min" min="5" max="120" value="15" />
+              </div>
+            </div>
+
+            <div class="foot">
+              <p id="settings-status" class="status"></p>
+              <button class="btn primary" id="settings-btn-save">保存设置</button>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+
+    <!-- 底部 Tab 栏 -->
+    <nav class="tab-bar" role="tablist">
+      <button class="tab-btn active" data-tab="0" role="tab" aria-selected="true">
+        <span class="tab-icon">&#x1F3E0;</span>
+        <span class="tab-label">首页</span>
+      </button>
+      <button class="tab-btn" data-tab="1" role="tab" aria-selected="false">
+        <span class="tab-icon">&#x270D;&#xFE0F;</span>
+        <span class="tab-label">代办</span>
+      </button>
+      <button class="tab-btn" data-tab="2" role="tab" aria-selected="false">
+        <span class="tab-icon">&#x1F4DA;</span>
+        <span class="tab-label">课程</span>
+      </button>
+      <button class="tab-btn" data-tab="3" role="tab" aria-selected="false">
+        <span class="tab-icon">&#x2699;&#xFE0F;</span>
+        <span class="tab-label">设置</span>
+      </button>
+    </nav>
+  </div>
+
+  <script src="../shared/theme-init.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
