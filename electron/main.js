@@ -2,6 +2,17 @@ const { app, BrowserWindow, ipcMain, shell, session, nativeTheme, Notification, 
 const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
+
+function appLog(msg, err = null) {
+  const ts = new Date().toISOString().replace("T", " ").slice(0, 19);
+  let line = `[${ts}] ${msg}`;
+  if (err) line += ` | ${err.message || err}`;
+  try {
+    const logPath = path.join(getDataDir(), "electron.log");
+    fs.appendFileSync(logPath, line + "\n");
+  } catch (_) {}
+  console.log(line);
+}
 const { parseDueToDate, hoursUntil } = require(path.join(__dirname, "lib", "due-parse.js"));
 
 /** 默认每半小时自动爬取（与 python/paths.py WIDGET_REFRESH_MINUTES_DEFAULT、config.yaml widget_refresh_minutes 一致） */
@@ -771,31 +782,48 @@ if (!gotTheLock) {
         }
         return { ok: true };
       } catch (e) {
+        appLog("save-credentials clear error", e);
         return { ok: false, error: String(e.message || e) };
       }
     }
     if (!u || !p) return { ok: false, error: "学号和密码必须同时填写" };
-    const cfgPath = getConfigYamlPath();
-    let body = "";
+
+    // 通过 Python 加密密码后写入 config.yaml
     try {
+      const { execSync } = require("child_process");
+      const py = getPythonPath();
+      const cryptoScript = path.join(getRepoRoot(), "python", "crypto_cli.py");
+      appLog("save-credentials encrypting via Python: " + py);
+      const result = execSync(
+        `"${py}" "${cryptoScript}" encrypt`,
+        { cwd: getRepoRoot(), input: p, encoding: "utf8", timeout: 10000 }
+      );
+      const encrypted = result.trim();
+      if (!encrypted) throw new Error("加密失败：输出为空");
+
+      const cfgPath = getConfigYamlPath();
+      let body = "";
       if (fs.existsSync(cfgPath)) {
         body = fs.readFileSync(cfgPath, "utf8").replace(/\r\n/g, "\n");
       } else {
         const example = path.join(getRepoRoot(), "python", "config.example.yaml");
         if (fs.existsSync(example)) body = fs.readFileSync(example, "utf8").replace(/\r\n/g, "\n");
       }
+      // 只替换顶层 key（不在缩进后的行匹配）
       const setKey = (text, key, value) => {
-        const re = new RegExp("^(\\s*" + key + ":\\s*).*$", "m");
+        const re = new RegExp("^(" + key + ":\\s*).*$", "m");
         if (re.test(text)) return text.replace(re, "$1" + value);
         return text.replace(/\n?$/, "\n" + key + ": " + value + "\n");
       };
       body = setKey(body, "auto_login", "true");
       body = setKey(body, "username", '"' + u + '"');
-      body = setKey(body, "password", '"' + p + '"');
+      body = setKey(body, "password", '"' + encrypted + '"');
       fs.mkdirSync(getDataDir(), { recursive: true });
       fs.writeFileSync(cfgPath, body, "utf8");
+      appLog("save-credentials success");
       return { ok: true };
     } catch (e) {
+      appLog("save-credentials encrypt error", e);
       return { ok: false, error: String(e.message || e) };
     }
   });
@@ -804,8 +832,9 @@ if (!gotTheLock) {
     try {
       if (!fs.existsSync(cfgPath)) return { auto_login: false, username: "", password: "" };
       const body = fs.readFileSync(cfgPath, "utf8").replace(/\r\n/g, "\n");
+      // 只匹配顶层 key（行首无缩进）
       const m = (key) => {
-        const re = new RegExp("^\\s*" + key + ":\\s*(.+)$", "m");
+        const re = new RegExp("^" + key + ":\\s*(.+)$", "m");
         const match = body.match(re);
         if (!match) return "";
         let v = match[1].trim().replace(/\r$/, '');
@@ -814,12 +843,31 @@ if (!gotTheLock) {
         }
         return v;
       };
+      let password = m("password");
+      // 解密 Fernet token
+      if (password.startsWith("gAAAAAB")) {
+        try {
+          const { execSync } = require("child_process");
+          const py = getPythonPath();
+          const cryptoScript = path.join(getRepoRoot(), "python", "crypto_cli.py");
+          appLog("get-credentials-config decrypting via Python: " + py);
+          const result = execSync(
+            `"${py}" "${cryptoScript}" decrypt`,
+            { cwd: getRepoRoot(), input: password, encoding: "utf8", timeout: 10000 }
+          );
+          password = result.trim();
+          appLog("get-credentials-config decrypt success");
+        } catch (e) {
+          appLog("get-credentials-config decrypt error", e);
+        }
+      }
       return {
         auto_login: m("auto_login") === "true",
         username: m("username"),
-        password: m("password"),
+        password: password,
       };
-    } catch (_) {
+    } catch (e) {
+      appLog("get-credentials-config error", e);
       return { auto_login: false, username: "", password: "" };
     }
   });
@@ -899,6 +947,12 @@ if (!gotTheLock) {
       return { ok: false, error: String(e.message || e) };
     }
   });
+  ipcMain.handle("open-external", (_e, url) => {
+    if (url && (url.startsWith("http://") || url.startsWith("https://"))) {
+      shell.openExternal(url);
+    }
+  });
+
   ipcMain.handle("close-login-window", () => {
     if (loginWindow && !loginWindow.isDestroyed()) {
       loginWindow.close();

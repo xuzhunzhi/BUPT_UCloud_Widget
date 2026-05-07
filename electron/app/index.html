@@ -49,14 +49,47 @@
           </div>
         </section>
 
-        <!-- 代办 Tab -->
+        <!-- 待办 Tab -->
         <section class="tab-panel" id="tab-tasks">
           <div class="tab-inner">
-            <div class="placeholder-card">
-              <span class="placeholder-icon">&#x1F4CB;</span>
-              <h2>代办</h2>
-              <p>待办事项功能开发中，敬请期待。</p>
+            <div class="tasks-header">
+              <h2 class="tab-heading">待办事项</h2>
+              <button class="btn-icon" id="btn-sync-tasks" title="立即同步">&#x21BB;</button>
             </div>
+
+            <div class="tasks-toolbar">
+              <div class="tasks-search-wrap">
+                <input type="text" id="tasks-search" class="tasks-search" placeholder="搜索作业或课程..." />
+                <span class="tasks-search-clear" id="tasks-search-clear" style="display:none">&times;</span>
+              </div>
+              <select id="tasks-filter-course" class="tasks-select">
+                <option value="">全部课程</option>
+              </select>
+              <select id="tasks-filter-status" class="tasks-select">
+                <option value="">全部状态</option>
+                <option value="not-overdue">未逾期</option>
+                <option value="submitted">已提交</option>
+                <option value="overdue">已逾期</option>
+                <option value="urgent">24 小时内</option>
+                <option value="soon">3 天内</option>
+                <option value="upcoming">7 天内</option>
+              </select>
+            </div>
+
+            <div class="tasks-summary">
+              <span id="tasks-count"></span>
+              <span id="tasks-updated"></span>
+            </div>
+
+            <div id="tasks-list" class="tasks-list"></div>
+
+            <div id="tasks-empty" class="tasks-empty" style="display:none">
+              <span class="empty-icon">&#x1F4CB;</span>
+              <p class="empty-text">暂无待办事项</p>
+              <p class="empty-hint">点击「立即同步」拉取最新作业数据</p>
+            </div>
+
+            <p id="status-tasks" class="status"></p>
           </div>
         </section>
 
@@ -173,7 +206,7 @@
       </button>
       <button class="tab-btn" data-tab="1" role="tab" aria-selected="false">
         <span class="tab-icon">&#x270D;&#xFE0F;</span>
-        <span class="tab-label">代办</span>
+        <span class="tab-label">待办</span>
       </button>
       <button class="tab-btn" data-tab="2" role="tab" aria-selected="false">
         <span class="tab-icon">&#x1F4DA;</span>

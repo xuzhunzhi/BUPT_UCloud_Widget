@@ -216,6 +216,324 @@ if (window.buptHw && window.buptHw.onSwitchTab) {
   refreshHomeStats().then(function () { setHomeStatus("就绪"); });
 })();
 
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// ===== Tasks Tab =====
+(function () {
+  var statusTasks = document.getElementById("status-tasks");
+  var tasksList = document.getElementById("tasks-list");
+  var tasksEmpty = document.getElementById("tasks-empty");
+  var tasksCount = document.getElementById("tasks-count");
+  var tasksUpdated = document.getElementById("tasks-updated");
+  var btnSyncTasks = document.getElementById("btn-sync-tasks");
+  var searchInput = document.getElementById("tasks-search");
+  var searchClear = document.getElementById("tasks-search-clear");
+  var filterCourse = document.getElementById("tasks-filter-course");
+  var filterStatus = document.getElementById("tasks-filter-status");
+
+  var allItems = [];
+  var courseSet = {};
+
+  function setTasksStatus(text, isErr) {
+    statusTasks.textContent = text;
+    statusTasks.classList.toggle("err", !!isErr);
+  }
+
+  // Parse due string to Date. Returns null if unparseable.
+  function parseDueDate(due) {
+    if (!due || typeof due !== "string") return null;
+    var s = due.trim();
+    if (!s) return null;
+
+    // YYYY-MM-DD HH:MM:SS or YYYY-MM-DD HH:MM (with optional "截止" suffix)
+    var m = s.match(/(\d{4})\s*[-/年]\s*(\d{1,2})\s*[-/月]\s*(\d{1,2})/);
+    if (!m) return null;
+
+    var y = parseInt(m[1], 10);
+    var mo = parseInt(m[2], 10) - 1;
+    var d = parseInt(m[3], 10);
+    var hh = 23;
+    var mm = 59;
+    var ss = 0;
+
+    var tm = s.match(/(\d{1,2})\s*:\s*(\d{2})(?::(\d{2}))?/);
+    if (tm) {
+      hh = parseInt(tm[1], 10);
+      mm = parseInt(tm[2], 10);
+      if (tm[3] != null) ss = parseInt(tm[3], 10);
+    }
+
+    var dt = new Date(y, mo, d, hh, mm, ss);
+    return isNaN(dt.getTime()) ? null : dt;
+  }
+
+  function isOverdue(due) {
+    var dt = parseDueDate(due);
+    if (!dt) return false;
+    return (dt.getTime() - Date.now()) / 3600000 < 0;
+  }
+
+  function hoursUntil(due) {
+    var dt = parseDueDate(due);
+    if (!dt) return null;
+    return (dt.getTime() - Date.now()) / 3600000;
+  }
+
+  function urgencyLabel(it) {
+    if (it.submitted) return "已提交";
+    if (isOverdue(it.due)) return "已逾期";
+    var dt = parseDueDate(it.due);
+    if (!dt) return "";
+    var hours = (dt.getTime() - Date.now()) / 3600000;
+    if (hours < 24) return "即将截止";
+    if (hours < 72) return "临近截止";
+    return "";
+  }
+
+  function formatDueDisplay(due) {
+    if (!due) return "";
+    // Clean up: remove trailing "截止", limit length
+    var s = due.replace(/截止\s*$/, "").trim();
+    return s.length > 30 ? s.slice(0, 30) + "..." : s;
+  }
+
+  function buildCourseFilter(items) {
+    var seen = {};
+    var courses = [];
+    items.forEach(function (it) {
+      var c = (it.course || "").trim();
+      if (c && !seen[c]) {
+        seen[c] = true;
+        courses.push(c);
+      }
+    });
+    courses.sort();
+    // Keep "全部课程" option, remove old options
+    while (filterCourse.options.length > 1) {
+      filterCourse.remove(1);
+    }
+    courses.forEach(function (c) {
+      var opt = document.createElement("option");
+      opt.value = c;
+      opt.textContent = c;
+      filterCourse.appendChild(opt);
+    });
+  }
+
+  function applyFilters() {
+    var searchText = (searchInput.value || "").trim().toLowerCase();
+    var courseVal = filterCourse.value;
+    var statusVal = filterStatus.value;
+
+    return allItems.filter(function (it) {
+      if (courseVal && (it.course || "").trim() !== courseVal) return false;
+      if (statusVal === "not-overdue" && isOverdue(it.due)) return false;
+      if (statusVal === "submitted" && !it.submitted) return false;
+      if (statusVal === "overdue" && !isOverdue(it.due)) return false;
+      if (statusVal === "urgent") {
+        var h = hoursUntil(it.due);
+        if (h === null || h < 0 || h >= 24) return false;
+      }
+      if (statusVal === "soon") {
+        var h2 = hoursUntil(it.due);
+        if (h2 === null || h2 < 24 || h2 >= 72) return false;
+      }
+      if (statusVal === "upcoming") {
+        var h3 = hoursUntil(it.due);
+        if (h3 === null || h3 < 72 || h3 >= 168) return false;
+      }
+      if (searchText) {
+        var title = (it.title || "").toLowerCase();
+        var course = (it.course || "").toLowerCase();
+        if (title.indexOf(searchText) === -1 && course.indexOf(searchText) === -1) return false;
+      }
+      return true;
+    });
+  }
+
+  function sortByDue(items) {
+    return items.slice().sort(function (a, b) {
+      var da = parseDueDate(a.due);
+      var db = parseDueDate(b.due);
+      if (da && db) return da.getTime() - db.getTime();
+      if (da && !db) return -1;
+      if (!da && db) return 1;
+      return (a.title || "").localeCompare(b.title || "");
+    });
+  }
+
+  function renderTasks() {
+    var filtered = applyFilters();
+    var sorted = sortByDue(filtered);
+
+    if (!allItems.length) {
+      tasksList.innerHTML = "";
+      tasksEmpty.style.display = "flex";
+      tasksCount.textContent = "";
+      tasksUpdated.textContent = "";
+      searchClear.style.display = "none";
+      return;
+    }
+
+    if (!sorted.length) {
+      tasksList.innerHTML = "";
+      tasksEmpty.style.display = "flex";
+      tasksEmpty.querySelector(".empty-text").textContent = "没有匹配的作业";
+      tasksEmpty.querySelector(".empty-hint").textContent = "试试调整筛选条件或搜索关键词";
+      tasksCount.textContent = "0 / " + allItems.length + " 条";
+      return;
+    }
+
+    tasksEmpty.style.display = "none";
+
+    // Summary
+    var overdueCount = 0;
+    var submittedCount = 0;
+    sorted.forEach(function (it) {
+      if (it.submitted) submittedCount++;
+      else if (isOverdue(it.due)) overdueCount++;
+    });
+    var summary = sorted.length + " 条";
+    if (overdueCount > 0) summary += "（" + overdueCount + " 已逾期）";
+    if (submittedCount > 0) summary += "（" + submittedCount + " 已提交）";
+    if (sorted.length !== allItems.length) summary += " / 筛选自 " + allItems.length + " 条";
+    tasksCount.textContent = summary;
+
+    // Render cards
+    var frag = document.createDocumentFragment();
+    sorted.forEach(function (it, i) {
+      var card = document.createElement("div");
+      card.className = "task-card";
+      if (it.submitted) {
+        card.classList.add("submitted");
+      } else if (isOverdue(it.due)) {
+        card.classList.add("urgent-overdue");
+      } else {
+        var h = hoursUntil(it.due);
+        if (h !== null && h < 24) card.classList.add("urgent-critical");
+        else if (h !== null && h < 72) card.classList.add("urgent-soon");
+      }
+
+      var label = urgencyLabel(it);
+      var dueText = formatDueDisplay(it.due);
+      var dueHtml = escapeHtml(dueText);
+      if (it.submitted) {
+        dueHtml = '<span class="submitted-tag">已提交</span>';
+      } else if (label) {
+        dueHtml = '<span class="due-label">' + label + "</span>" + dueHtml;
+      }
+
+      var dueCls = "";
+      if (it.submitted) dueCls = "normal";
+      else if (isOverdue(it.due)) dueCls = "overdue";
+
+      card.innerHTML =
+        '<div class="task-row">' +
+          '<div class="task-info">' +
+            '<p class="task-title">' + escapeHtml(it.title || "（无标题）") + "</p>" +
+            (it.course ? '<p class="task-course">' + escapeHtml(it.course) + "</p>" : "") +
+          "</div>" +
+          '<div class="task-due ' + dueCls + '">' +
+            dueHtml +
+          "</div>" +
+        "</div>";
+
+      // TODO: future — click to expand inline content detail
+
+      frag.appendChild(card);
+    });
+
+    tasksList.innerHTML = "";
+    tasksList.appendChild(frag);
+  }
+
+  function loadTasksCache() {
+    window.buptHw.getCache().then(function (data) {
+      allItems = data.items || [];
+      courseSet = {};
+      allItems.forEach(function (it) {
+        var c = (it.course || "").trim();
+        if (c) courseSet[c] = true;
+      });
+      buildCourseFilter(allItems);
+      tasksUpdated.textContent = data.updated_at ? "上次同步：" + data.updated_at : "";
+      renderTasks();
+      setTasksStatus("就绪");
+    }).catch(function (e) {
+      setTasksStatus("读取缓存失败：" + (e.message || e), true);
+      allItems = [];
+      renderTasks();
+    });
+  }
+
+  function doTasksSync() {
+    btnSyncTasks.disabled = true;
+    setTasksStatus("正在同步...");
+    window.buptHw.runFetch().then(function (res) {
+      return window.buptHw.getCache().then(function (data) {
+        allItems = data.items || [];
+        buildCourseFilter(allItems);
+        tasksUpdated.textContent = data.updated_at ? "上次同步：" + data.updated_at : "";
+        renderTasks();
+        if (res.ok) {
+          setTasksStatus("同步完成，共 " + allItems.length + " 条");
+        } else {
+          var tail = (res.logs && (res.logs.stderr || res.logs.stdout)) || res.error || "";
+          setTasksStatus("同步失败（退出码 " + res.code + "）。" + tail.slice(0, 200), true);
+        }
+      });
+    }).catch(function (e) {
+      setTasksStatus("同步异常：" + (e.message || e), true);
+    }).then(function () {
+      btnSyncTasks.disabled = false;
+    });
+  }
+
+  // Event listeners
+  btnSyncTasks.addEventListener("click", doTasksSync);
+
+  searchInput.addEventListener("input", function () {
+    searchClear.style.display = searchInput.value ? "block" : "none";
+    renderTasks();
+  });
+
+  searchClear.addEventListener("click", function () {
+    searchInput.value = "";
+    searchClear.style.display = "none";
+    renderTasks();
+  });
+
+  filterCourse.addEventListener("change", function () {
+    renderTasks();
+  });
+
+  filterStatus.addEventListener("change", function () {
+    renderTasks();
+  });
+
+  // Listen for cache updates
+  if (window.buptHw.onCacheUpdated) {
+    window.buptHw.onCacheUpdated(function () {
+      loadTasksCache();
+    });
+  }
+
+  if (window.buptHw.onPrefsChanged) {
+    window.buptHw.onPrefsChanged(function () {
+      loadTasksCache();
+    });
+  }
+
+  // Init
+  loadTasksCache();
+})();
+
 // ===== Settings Tab (lazy-loaded) =====
 var settingsLoaded = false;
 var loadedCreds = { username: "", password: "" };

@@ -35,4 +35,5 @@ contextBridge.exposeInMainWorld("buptHw", {
   onSwitchTab: (fn) => {
     ipcRenderer.on("switch-tab", (_e, index) => fn(index));
   },
+  openExternal: (url) => ipcRenderer.invoke("open-external", url),
 });

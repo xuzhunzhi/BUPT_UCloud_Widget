@@ -48,14 +48,14 @@ with sync_playwright() as p:
         token = None
         user_id = None
         # 从 page.evaluate 获取 token
-        token = page.evaluate("() => {
+        token = page.evaluate("""() => {
             const cookies = document.cookie.split(';');
             for (const c of cookies) {
                 const [k, v] = c.trim().split('=');
                 if (k === 'Blade-Auth') return v;
             }
             return null;
-        }")
+        }""")
 
         # 或从 localStorage 获取
         if not token:
@@ -64,19 +64,19 @@ with sync_playwright() as p:
             token = page.evaluate("() => sessionStorage.getItem('token') || sessionStorage.getItem('access_token')")
 
         # 从页面获取 userId
-        user_id = page.evaluate("() => {
+        user_id = page.evaluate("""() => {
             try {
                 const store = JSON.parse(localStorage.getItem('store') || '{}');
                 return store.user_id || store.userId || null;
             } catch(e) { return null; }
-        }")
+        }""")
         if not user_id:
-            user_id = page.evaluate("() => {
+            user_id = page.evaluate("""() => {
                 try {
                     const state = JSON.parse(localStorage.getItem('vuex') || '{}');
                     return state.user?.user_id || state.user?.userId || null;
                 } catch(e) { return null; }
-            }")
+            }""")
 
         print(f"  token: {'有' if token else '无'}")
         print(f"  userId: {user_id}")
@@ -135,6 +135,17 @@ with sync_playwright() as p:
             records = data.get("data", {}).get("records", [])
             total = data.get("data", {}).get("total", 0)
             print(f"{len(records)}/{total} assignments")
+
+            # Dump full record schema for the first course
+            if idx == 0 and records:
+                print(f"\n  === FULL RECORD SCHEMA (first 2 items) ===")
+                for ri, rec in enumerate(records[:2]):
+                    print(f"  --- Record {ri+1} ---")
+                    for k, v in sorted(rec.items(), key=lambda x: str(x[0])):
+                        vt = type(v).__name__
+                        vp = str(v)[:300]
+                        print(f"    {k}: {vt} = {vp}")
+                print(f"  === END SCHEMA ===\n")
 
             for rec in records:
                 aid = str(rec.get("id", ""))

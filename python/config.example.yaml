@@ -59,6 +59,8 @@ user_data_dir: "browser_profile"
 use_playwright_storage_state: true
 
 # 自动登录（本地保存账号密码，由脚本自动填写 CAS 登录表单）
+# 密码会使用 Fernet 加密存储（密钥文件 .encryption_key 在数据目录中）
+# 通过「设置」页面或 python app.py set-credentials 保存凭据时自动加密
 auto_login: false
 username: ""
 password: ""

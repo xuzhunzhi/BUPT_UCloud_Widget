@@ -90,7 +90,8 @@ def cmd_fetch(debug: bool):
 def cmd_set_credentials(username: str):
     """将账号密码写入 config.yaml 并开启 auto_login。密码通过交互输入避免泄露到 shell 历史。"""
     import getpass
-    import re
+
+    import yaml
 
     from homework_fetcher import CONFIG_PATH
 
@@ -109,21 +110,17 @@ def cmd_set_credentials(username: str):
         print("错误: 密码不能为空")
         raise SystemExit(1)
 
-    # 行级替换，避免 yaml.dump 丢失注释
-    body = CONFIG_PATH.read_text(encoding="utf-8")
-
-    def _set_yaml_key(text: str, key: str, value: str) -> str:
-        pat = re.compile(rf"^(\s*{re.escape(key)}:\s*).*$", re.MULTILINE)
-        if pat.search(text):
-            return pat.sub(rf"\g<1>{value}", text)
-        return text.rstrip("\n") + f"\n{key}: {value}\n"
-
-    body = _set_yaml_key(body, "auto_login", "true")
-    body = _set_yaml_key(body, "username", f'"{username}"')
-    body = _set_yaml_key(body, "password", f'"{password}"')
-
-    CONFIG_PATH.write_text(body, encoding="utf-8")
-    print(f"已保存账号到 {CONFIG_PATH}，auto_login 已开启")
+    # 使用 yaml 安全序列化，避免正则编辑破坏 YAML 结构
+    from crypto_utils import encrypt_password
+    cfg = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
+    cfg["auto_login"] = True
+    cfg["username"] = username
+    cfg["password"] = encrypt_password(password)
+    CONFIG_PATH.write_text(
+        yaml.dump(cfg, allow_unicode=True, default_flow_style=False, indent=2),
+        encoding="utf-8",
+    )
+    print(f"已保存账号到 {CONFIG_PATH}（密码已加密），auto_login 已开启")
 
 
 def cmd_check():
