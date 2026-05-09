@@ -96,11 +96,27 @@
         <!-- 课程 Tab -->
         <section class="tab-panel" id="tab-courses">
           <div class="tab-inner">
-            <div class="placeholder-card">
-              <span class="placeholder-icon">&#x1F393;</span>
-              <h2>课程</h2>
-              <p>课程管理功能开发中，敬请期待。</p>
+            <div class="courses-header">
+              <h2 class="tab-heading">课程</h2>
+              <span id="courses-count" class="badge-count"></span>
             </div>
+
+            <div class="courses-toolbar">
+              <div class="courses-search-wrap">
+                <input type="text" id="courses-search" class="tasks-search" placeholder="搜索课程..." />
+                <span class="tasks-search-clear" id="courses-search-clear" style="display:none">&times;</span>
+              </div>
+            </div>
+
+            <div id="courses-list" class="courses-list"></div>
+
+            <div id="courses-empty" class="tasks-empty" style="display:none">
+              <span class="empty-icon">&#x1F393;</span>
+              <p class="empty-text">暂无课程数据</p>
+              <p class="empty-hint">点击首页「立即同步」拉取最新数据</p>
+            </div>
+
+            <p id="status-courses" class="status"></p>
           </div>
         </section>
 

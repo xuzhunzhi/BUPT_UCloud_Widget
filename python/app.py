@@ -62,7 +62,12 @@ def cmd_fetch(debug: bool):
 
     try:
         cfg = load_config()
-        items, course_count = fetch_homework(headless=True, debug_dump=debug, cfg=cfg)
+        result = fetch_homework(headless=True, debug_dump=debug, cfg=cfg)
+        if isinstance(result, tuple):
+            items, course_count = result[0], result[1]
+            courses = result[2] if len(result) > 2 else []
+        else:
+            items, course_count, courses = result, 0, []
         warn = None
         if len(items) == 0:
             warn = (
@@ -70,7 +75,7 @@ def cmd_fetch(debug: bool):
                 "请在应用内点击「登录」重新登录教学空间、保存登录态后再「立即同步」。"
                 "若登录后仍为空，执行 python python/app.py fetch --debug 查看 debug 文件排查。"
             )
-        save_cache(items, portal_url=resolve_portal_url(cfg), warning=warn, course_count=course_count)
+        save_cache(items, portal_url=resolve_portal_url(cfg), warning=warn, course_count=course_count, courses=courses)
     except (ValueError, RuntimeError) as e:
         print(f"错误: {e}", file=sys.stderr)
         raise SystemExit(1) from e

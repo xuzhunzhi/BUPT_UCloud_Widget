@@ -1,6 +1,6 @@
 {
   "name": "bupt-uclass-homework-widget",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "description": "云邮教学空间作业待办（Electron + Python/Playwright）",
   "main": "electron/main.js",

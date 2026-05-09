@@ -706,6 +706,7 @@ def fetch_homework(
 
                 tried_hashes: set[str] = set()
                 auto_login_attempted = False
+                saved_courses: list[dict[str, Any]] = []
 
                 for nav_url in urls_to_try:
                     # 跳过已尝试过的相同 hash
@@ -900,6 +901,7 @@ def fetch_homework(
                     try:
                         courses, uid = _get_courses(page, net_bucket)
                         if courses:
+                            saved_courses = courses
                             undone_ids: set[str] = set()
                             for row in net_bucket:
                                 url = row.get("url", "")
@@ -991,8 +993,8 @@ def fetch_homework(
                     )
                     print(f"[诊断] {summary['suggestion']}", flush=True)
 
-                # 在所有 URL 遍历完后提取课程数
-                course_count = _get_course_count(page, net_bucket)
+                # 在所有 URL 遍历完后提取课程数（优先用已获取的课程列表长度）
+                course_count = len(saved_courses) if saved_courses else _get_course_count(page, net_bucket)
 
             finally:
                 context.close()
@@ -1011,7 +1013,7 @@ def fetch_homework(
     if max_items is not None and len(items) > max_items:
         items = items[:max_items]
 
-    return items, course_count
+    return items, course_count, saved_courses
 
 
 def save_cache(
@@ -1020,6 +1022,7 @@ def save_cache(
     portal_url: str = "",
     warning: str | None = None,
     course_count: int = 0,
+    courses: list[dict[str, Any]] | None = None,
 ) -> None:
     payload = {
         "schema_version": CACHE_SCHEMA_VERSION,
@@ -1027,6 +1030,10 @@ def save_cache(
         "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "items": [asdict(x) for x in items],
         "course_count": course_count,
+        "courses": [
+            {"id": c.get("id", ""), "siteName": c.get("siteName", "")}
+            for c in (courses or [])
+        ],
     }
     if warning:
         payload["_warning"] = warning

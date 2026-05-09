@@ -28,6 +28,11 @@ function switchTab(index, instant) {
     panel.scrollTop = scrollPositions[index];
   }
 
+  // Lazy-load courses on first switch to tab 2
+  if (index === 2 && !coursesLoaded) {
+    coursesLoaded = true;
+    loadCourses();
+  }
   // Lazy-load settings on first switch to tab 3
   if (index === 3 && !settingsLoaded) {
     settingsLoaded = true;
@@ -533,6 +538,101 @@ function escapeHtml(s) {
   // Init
   loadTasksCache();
 })();
+
+// ===== Courses Tab (lazy-loaded) =====
+var coursesLoaded = false;
+
+function loadCourses() {
+  var coursesList = document.getElementById("courses-list");
+  var coursesEmpty = document.getElementById("courses-empty");
+  var coursesCount = document.getElementById("courses-count");
+  var statusCourses = document.getElementById("status-courses");
+  var searchInput = document.getElementById("courses-search");
+  var searchClear = document.getElementById("courses-search-clear");
+
+  function setStatus(text, isErr) {
+    statusCourses.textContent = text;
+    statusCourses.classList.toggle("err", !!isErr);
+  }
+
+  function renderCourses(courses) {
+    if (!courses || !courses.length) {
+      coursesList.innerHTML = "";
+      coursesEmpty.style.display = "flex";
+      coursesCount.textContent = "";
+      return;
+    }
+
+    coursesEmpty.style.display = "none";
+    coursesCount.textContent = courses.length + " 门";
+
+    var searchText = (searchInput.value || "").trim().toLowerCase();
+    var filtered = courses;
+    if (searchText) {
+      filtered = courses.filter(function (c) {
+        return (c.siteName || "").toLowerCase().indexOf(searchText) !== -1;
+      });
+    }
+
+    var frag = document.createDocumentFragment();
+    filtered.forEach(function (course) {
+      var card = document.createElement("div");
+      card.className = "course-card";
+
+      var initial = (course.siteName || "?").charAt(0).toUpperCase();
+
+      card.innerHTML =
+        '<div class="course-card-left">' +
+          '<span class="course-avatar">' + escapeHtml(initial) + "</span>" +
+        "</div>" +
+        '<div class="course-card-body">' +
+          '<p class="course-name">' + escapeHtml(course.siteName || "未知课程") + "</p>" +
+          '<p class="course-id">ID: ' + escapeHtml(course.id || "") + "</p>" +
+        "</div>";
+
+      frag.appendChild(card);
+    });
+
+    coursesList.innerHTML = "";
+    coursesList.appendChild(frag);
+  }
+
+  function loadCoursesCache() {
+    window.buptHw.getCache().then(function (data) {
+      var courses = data.courses || [];
+      renderCourses(courses);
+      if (courses.length > 0) {
+        setStatus("共 " + courses.length + " 门课程");
+      } else {
+        setStatus("暂无课程数据，请先同步");
+      }
+    }).catch(function (e) {
+      setStatus("读取失败：" + (e.message || e), true);
+      renderCourses([]);
+    });
+  }
+
+  searchInput.addEventListener("input", function () {
+    searchClear.style.display = searchInput.value ? "block" : "none";
+    window.buptHw.getCache().then(function (data) {
+      renderCourses(data.courses || []);
+    });
+  });
+
+  searchClear.addEventListener("click", function () {
+    searchInput.value = "";
+    searchClear.style.display = "none";
+    window.buptHw.getCache().then(function (data) {
+      renderCourses(data.courses || []);
+    });
+  });
+
+  if (window.buptHw.onCacheUpdated) {
+    window.buptHw.onCacheUpdated(loadCoursesCache);
+  }
+
+  loadCoursesCache();
+}
 
 // ===== Settings Tab (lazy-loaded) =====
 var settingsLoaded = false;
