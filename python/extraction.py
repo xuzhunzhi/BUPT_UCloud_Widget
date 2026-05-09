@@ -127,7 +127,7 @@ def extract_homework_from_json_tree(data: Any, source_url: str = "") -> list[Hom
 
     def maybe_emit_from_dict(d: dict[str, Any]) -> None:
         nonlocal out
-        if len(json.dumps(d, ensure_ascii=False)) > 12_000:
+        if len(json.dumps(d, ensure_ascii=False)) > 50_000:
             return
         blob = json.dumps(d, ensure_ascii=False)
         title = ""

@@ -609,6 +609,10 @@ def _convert_work_records_to_items(
                     ex.course = str(rec.get("_course_name", ""))
                 if not ex.submitted and undone_ids and activity_id:
                     ex.submitted = activity_id not in undone_ids
+                # 如果已经从 work/detail 获取了内容，填充到 item
+                ac = rec.get("assignmentContent", "") or ""
+                if ac and not ex.content:
+                    ex.content = ac[:3000]
                 items.append(ex)
         else:
             # Fallback: 直接从已知字段构建
@@ -619,9 +623,9 @@ def _convert_work_records_to_items(
             due = str(rec.get("endTime") or rec.get("deadline")
                      or rec.get("closeTime") or rec.get("submitEnd", "")).strip()
             course = str(rec.get("_course_name", ""))
-            content = str(rec.get("content") or rec.get("description")
-                         or rec.get("introduction") or rec.get("workContent")
-                         or rec.get("remark", "")).strip()
+            content = str(rec.get("assignmentContent") or rec.get("content")
+                         or rec.get("description") or rec.get("introduction")
+                         or rec.get("workContent") or rec.get("remark", "")).strip()
             submitted = bool(undone_ids and activity_id and activity_id not in undone_ids)
 
             items.append(HomeworkItem(
@@ -635,6 +639,56 @@ def _convert_work_records_to_items(
             ))
 
     return _dedupe_homework_items(items)
+
+
+def _enrich_work_records_with_details(
+    context,
+    work_records: list[dict[str, Any]],
+    iclass_token: str,
+    *,
+    max_concurrent: int = 5,
+) -> list[dict[str, Any]]:
+    """逐条调用 work/detail 获取 assignmentContent 等详情，原地 enrich 每一条 record。
+
+    返回被 enrich 的 work_records（新字段: assignmentContent, assignmentComment）。
+    """
+    if not work_records or not iclass_token:
+        return work_records
+
+    headers = {"Blade-Auth": iclass_token}
+    api = context.request
+    enriched = 0
+    failed = 0
+
+    for i, rec in enumerate(work_records):
+        aid = rec.get("id") or rec.get("activityId", "")
+        if not aid:
+            continue
+        try:
+            resp = api.get(
+                f"https://apiucloud.bupt.edu.cn/ykt-site/work/detail",
+                params={"assignmentId": aid},
+                headers=headers,
+            )
+            if resp.status == 200:
+                data = resp.json()
+                detail = (data.get("data") if isinstance(data, dict) else None) or {}
+                content = detail.get("assignmentContent", "") or ""
+                comment = detail.get("assignmentComment", "") or ""
+                if content or comment:
+                    rec["assignmentContent"] = content[:10000]
+                    rec["assignmentComment"] = comment[:3000]
+                    enriched += 1
+            else:
+                failed += 1
+        except Exception:
+            failed += 1
+
+        if (i + 1) % 20 == 0:
+            info(f"[作业详情] 已获取 {enriched}/{i+1} 条详情...")
+
+    info(f"[作业详情] 完成: {enriched} 条成功, {failed} 条失败")
+    return work_records
 
 
 def fetch_homework(
@@ -939,6 +993,19 @@ def fetch_homework(
 
                             work_records = _fetch_all_course_work_items(page, context, courses, uid)
                             if work_records:
+                                # 获取 token 用于调用详情 API
+                                detail_token = ""
+                                try:
+                                    for c in context.cookies():
+                                        if c.get("name") == "iClass-token":
+                                            detail_token = c.get("value", "")
+                                            break
+                                except Exception:
+                                    pass
+                                if detail_token:
+                                    _enrich_work_records_with_details(
+                                        context, work_records, detail_token
+                                    )
                                 extra_items = _convert_work_records_to_items(work_records, undone_ids)
                                 if extra_items:
                                     print(

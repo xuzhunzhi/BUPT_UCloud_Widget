@@ -89,6 +89,25 @@
               <p class="empty-hint">点击「立即同步」拉取最新作业数据</p>
             </div>
 
+            <!-- Task Detail View -->
+            <div id="task-detail" class="task-detail" style="display:none">
+              <div class="task-detail-topbar">
+                <button class="task-detail-back" id="task-detail-back" title="返回列表">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                  <span>返回</span>
+                </button>
+                <span class="task-detail-status" id="task-detail-status"></span>
+              </div>
+              <div class="task-detail-scroll">
+                <div class="task-detail-hero">
+                  <h2 class="task-detail-title" id="task-detail-title"></h2>
+                  <div class="task-detail-meta" id="task-detail-meta"></div>
+                </div>
+                <div class="task-detail-divider"></div>
+                <div class="task-detail-body" id="task-detail-body"></div>
+              </div>
+            </div>
+
             <p id="status-tasks" class="status"></p>
           </div>
         </section>

@@ -169,6 +169,7 @@ if (window.buptHw && window.buptHw.onSwitchTab) {
 
   async function doHomeSync() {
     btnSyncHome.disabled = true;
+    btnSyncHome.classList.add("syncing");
     setHomeStatus("正在同步（启动 Python 抓取）…");
     try {
       var res = await window.buptHw.runFetch();
@@ -185,6 +186,7 @@ if (window.buptHw && window.buptHw.onSwitchTab) {
       setHomeStatus("同步异常：" + (e.message || e), true);
     } finally {
       btnSyncHome.disabled = false;
+      btnSyncHome.classList.remove("syncing");
     }
   }
 
@@ -229,6 +231,26 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
+// Generate a deterministic color from a string (for course accents)
+function stringToColor(str) {
+  var hues = [200, 160, 280, 340, 40, 100, 20, 300, 180, 80];
+  var hash = 0;
+  for (var i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  var idx = Math.abs(hash) % hues.length;
+  return "hsl(" + hues[idx] + ", 55%, 55%)";
+}
+
+function sanitizeHtml(html) {
+  // Strip script and iframe tags
+  return String(html)
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, "")
+    .replace(/ on\w+="[^"]*"/gi, "")
+    .replace(/ on\w+='[^']*'/gi, "");
+}
+
 // ===== Tasks Tab =====
 (function () {
   var statusTasks = document.getElementById("status-tasks");
@@ -241,6 +263,9 @@ function escapeHtml(s) {
   var searchClear = document.getElementById("tasks-search-clear");
   var filterCourse = document.getElementById("tasks-filter-course");
   var filterStatus = document.getElementById("tasks-filter-status");
+  var tasksToolbar = document.querySelector(".tasks-toolbar");
+  var tasksSummary = document.querySelector(".tasks-summary");
+  var tasksHeader = document.querySelector(".tasks-header");
 
   var allItems = [];
   var courseSet = {};
@@ -418,11 +443,11 @@ function escapeHtml(s) {
       if (it.submitted) {
         card.classList.add("submitted");
       } else if (isOverdue(it.due)) {
-        card.classList.add("urgent-overdue");
+        card.style.setProperty("--task-color", "var(--err, #f08080)");
       } else {
         var h = hoursUntil(it.due);
-        if (h !== null && h < 24) card.classList.add("urgent-critical");
-        else if (h !== null && h < 72) card.classList.add("urgent-soon");
+        if (h !== null && h < 24) card.style.setProperty("--task-color", "var(--warn, #e8a045)");
+        else if (h !== null && h < 72) card.style.setProperty("--task-color", "#c9a845");
       }
 
       var label = urgencyLabel(it);
@@ -449,7 +474,10 @@ function escapeHtml(s) {
           "</div>" +
         "</div>";
 
-      // TODO: future — click to expand inline content detail
+      card.style.cursor = "pointer";
+      card.addEventListener("click", function () {
+        showTaskDetail(it, card);
+      });
 
       frag.appendChild(card);
     });
@@ -479,6 +507,7 @@ function escapeHtml(s) {
 
   function doTasksSync() {
     btnSyncTasks.disabled = true;
+    btnSyncTasks.classList.add("syncing");
     setTasksStatus("正在同步...");
     window.buptHw.runFetch().then(function (res) {
       return window.buptHw.getCache().then(function (data) {
@@ -497,6 +526,7 @@ function escapeHtml(s) {
       setTasksStatus("同步异常：" + (e.message || e), true);
     }).then(function () {
       btnSyncTasks.disabled = false;
+      btnSyncTasks.classList.remove("syncing");
     });
   }
 
@@ -534,6 +564,103 @@ function escapeHtml(s) {
       loadTasksCache();
     });
   }
+
+  // ===== Task Detail View =====
+  var taskDetailEl = document.getElementById("task-detail");
+  var taskDetailBack = document.getElementById("task-detail-back");
+  var taskDetailTitle = document.getElementById("task-detail-title");
+  var taskDetailMeta = document.getElementById("task-detail-meta");
+  var taskDetailBody = document.getElementById("task-detail-body");
+  var taskDetailStatus = document.getElementById("task-detail-status");
+
+  function showTaskDetail(item, cardEl) {
+    // Set transform-origin from the card position for expand animation
+    if (cardEl) {
+      var panelRect = taskDetailEl.closest(".tab-panel").getBoundingClientRect();
+      var cardRect = cardEl.getBoundingClientRect();
+      var originX = ((cardRect.left + cardRect.width / 2) - panelRect.left) / panelRect.width * 100;
+      var originY = ((cardRect.top + cardRect.height / 2) - panelRect.top) / panelRect.height * 100;
+      taskDetailEl.style.transformOrigin = originX + "% " + originY + "%";
+    } else {
+      taskDetailEl.style.transformOrigin = "";
+    }
+
+    // Hide list view
+    tasksList.style.display = "none";
+    if (tasksToolbar) tasksToolbar.style.display = "none";
+    if (tasksSummary) tasksSummary.style.display = "none";
+    if (tasksHeader) tasksHeader.style.display = "none";
+    tasksEmpty.style.display = "none";
+
+    // Title
+    taskDetailTitle.textContent = item.title || "（无标题）";
+
+    // Meta info as pills
+    var dueText = formatDueDisplay(item.due);
+    var metaHtml = "";
+    if (item.course) {
+      metaHtml += '<span class="meta-item"><span class="meta-icon">&#x1F4DA;</span> ' + escapeHtml(item.course) + "</span>";
+    }
+    if (dueText) {
+      metaHtml += '<span class="meta-item"><span class="meta-icon">&#x23F3;</span> ' + escapeHtml(dueText) + "</span>";
+    }
+
+    var statusText = "";
+    var statusCls = "";
+    if (item.submitted) {
+      statusText = "已提交";
+    } else if (isOverdue(item.due)) {
+      statusText = "已逾期";
+      statusCls = "overdue";
+    } else {
+      var h = hoursUntil(item.due);
+      if (h !== null && h < 24) {
+        statusText = "即将截止";
+        statusCls = "urgent";
+      } else if (h !== null && h < 72) {
+        statusText = "临近截止";
+        statusCls = "urgent";
+      }
+    }
+    taskDetailStatus.textContent = statusText;
+    taskDetailStatus.className = "task-detail-status" + (statusCls ? " " + statusCls : "");
+    taskDetailStatus.style.display = statusText ? "inline" : "none";
+    if (statusText) {
+      metaHtml += '<span class="meta-item" style="border-color:color-mix(in srgb, var(--accent,#5b9fd4) 30%,transparent)"><span class="meta-icon">&#x1F7E2;</span> ' + statusText + "</span>";
+    }
+    taskDetailMeta.innerHTML = metaHtml;
+
+    // Body content
+    var content = (item.content || "").trim();
+    if (content) {
+      taskDetailBody.innerHTML = sanitizeHtml(content);
+    } else {
+      taskDetailBody.innerHTML = '<p style="color:var(--muted,#8b9bb4)">暂无作业内容</p>';
+    }
+
+    // Trigger expand animation
+    taskDetailEl.classList.remove("shrink");
+    taskDetailEl.classList.remove("expand");
+    void taskDetailEl.offsetHeight; // force reflow
+    taskDetailEl.style.display = "block";
+    taskDetailEl.classList.add("expand");
+  }
+
+  function hideTaskDetail() {
+    taskDetailEl.classList.remove("expand");
+    taskDetailEl.classList.add("shrink");
+    setTimeout(function () {
+      taskDetailEl.style.display = "none";
+      taskDetailEl.classList.remove("shrink");
+      tasksList.style.display = "";
+      if (tasksToolbar) tasksToolbar.style.display = "";
+      if (tasksSummary) tasksSummary.style.display = "";
+      if (tasksHeader) tasksHeader.style.display = "";
+      renderTasks();
+    }, 220);
+  }
+
+  taskDetailBack.addEventListener("click", hideTaskDetail);
 
   // Init
   loadTasksCache();
@@ -579,14 +706,18 @@ function loadCourses() {
       var card = document.createElement("div");
       card.className = "course-card";
 
-      var initial = (course.siteName || "?").charAt(0).toUpperCase();
+      var name = course.siteName || "未知课程";
+      var initial = name.charAt(0).toUpperCase();
+      var color = stringToColor(name);
+
+      card.style.setProperty("--course-color", color);
 
       card.innerHTML =
         '<div class="course-card-left">' +
           '<span class="course-avatar">' + escapeHtml(initial) + "</span>" +
         "</div>" +
         '<div class="course-card-body">' +
-          '<p class="course-name">' + escapeHtml(course.siteName || "未知课程") + "</p>" +
+          '<p class="course-name">' + escapeHtml(name) + "</p>" +
           '<p class="course-id">ID: ' + escapeHtml(course.id || "") + "</p>" +
         "</div>";
 

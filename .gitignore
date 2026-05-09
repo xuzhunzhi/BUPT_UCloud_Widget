@@ -20,3 +20,5 @@ cas_debug.html
 config.yaml.test
 course_api_exploration.json
 网页代码/
+*.log
+.encryption_key
