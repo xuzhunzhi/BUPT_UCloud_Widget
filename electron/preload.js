@@ -36,4 +36,10 @@ contextBridge.exposeInMainWorld("buptHw", {
     ipcRenderer.on("switch-tab", (_e, index) => fn(index));
   },
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
+  showInFolder: (filePath) => ipcRenderer.invoke("show-in-folder", filePath),
+  openFile: (filePath) => ipcRenderer.invoke("open-file", filePath),
+  downloadResource: (resourceId, resourceName) => ipcRenderer.invoke("download-resource", resourceId, resourceName),
+  getDownloadDir: () => ipcRenderer.invoke("get-download-dir"),
+  setDownloadDir: (dir) => ipcRenderer.invoke("set-download-dir", dir),
+  selectDownloadDir: () => ipcRenderer.invoke("select-download-dir"),
 });

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, session, nativeTheme, Notification, Tray, Menu, nativeImage } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, session, nativeTheme, Notification, Tray, Menu, nativeImage, protocol, net, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const { spawn } = require("child_process");
@@ -47,6 +47,10 @@ const DEFAULT_STARTUP_PREFS = {
   alertCooldownUrgentMin: 30,
   /** 后台扫描缓存、判断是否发通知的周期（分钟） */
   alertPollMinutes: 15,
+  /** 小组件窗口位置（null 表示居中） */
+  widgetBounds: null,
+  /** 附件下载目录（null 表示 dataDir/attachments） */
+  downloadDir: null,
 };
 
 const ALERT_NOTIFY_FILENAME = "alert_notify_state.json";
@@ -658,7 +662,10 @@ function createWidgetWindow() {
     widgetWindow.focus();
     return;
   }
-  widgetWindow = new BrowserWindow({
+
+  const prefs = readElectronPrefs();
+  const saved = prefs.widgetBounds;
+  const winOpts = {
     width: 380,
     height: 460,
     minWidth: 300,
@@ -671,13 +678,33 @@ function createWidgetWindow() {
       nodeIntegration: false,
       sandbox: true,
     },
-  });
+  };
+  if (saved && typeof saved.x === "number" && typeof saved.y === "number") {
+    winOpts.x = saved.x;
+    winOpts.y = saved.y;
+    winOpts.width = saved.width || 380;
+    winOpts.height = saved.height || 460;
+  }
+  widgetWindow = new BrowserWindow(winOpts);
   widgetWindow.setMenuBarVisibility(false);
   widgetWindow.loadFile(path.join(__dirname, "widget", "index.html"));
   attachExternalLinks(widgetWindow);
+
+  // 保存窗口位置
+  function saveWidgetBounds() {
+    if (!widgetWindow || widgetWindow.isDestroyed()) return;
+    try {
+      const bounds = widgetWindow.getBounds();
+      writeElectronPrefs({ widgetBounds: { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } });
+    } catch (_) {}
+  }
+  widgetWindow.on("move", saveWidgetBounds);
+  widgetWindow.on("resize", saveWidgetBounds);
+
   widgetWindow.on("close", (e) => {
     if (tray && !tray.isDestroyed()) {
       e.preventDefault();
+      saveWidgetBounds();
       widgetWindow.hide();
     }
   });
@@ -739,6 +766,12 @@ if (!gotTheLock) {
   });
 
   app.whenReady().then(() => {
+  // 注册 attachment:// 协议用于提供本地附件
+  protocol.handle("attachment", (request) => {
+    const filePath = decodeURIComponent(request.url.replace("attachment:///", ""));
+    return net.fetch("file:///" + filePath);
+  });
+
   if (process.platform === "win32") {
     app.setAppUserModelId("edu.bupt.ucloud.homework.widget");
   }
@@ -951,6 +984,161 @@ if (!gotTheLock) {
     if (url && (url.startsWith("http://") || url.startsWith("https://"))) {
       shell.openExternal(url);
     }
+  });
+
+  ipcMain.handle("show-in-folder", (_e, filePath) => {
+    if (filePath && typeof filePath === "string") {
+      try {
+        shell.showItemInFolder(filePath);
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: String(e.message || e) };
+      }
+    }
+    return { ok: false, error: "invalid path" };
+  });
+
+  ipcMain.handle("open-file", (_e, filePath) => {
+    if (filePath && typeof filePath === "string") {
+      try {
+        shell.openPath(filePath);
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: String(e.message || e) };
+      }
+    }
+    return { ok: false, error: "invalid path" };
+  });
+
+  /**
+   * 在 Electron 主进程发 HTTP 请求（替代 fetch，兼容性更好）。
+   * 支持 https: 和 http: 协议。
+   */
+  function httpRequest(url, options = {}) {
+    return new Promise((resolve, reject) => {
+      const parsed = new URL(url);
+      const mod = parsed.protocol === "https:" ? require("https") : require("http");
+      const req = mod.request(
+        {
+          hostname: parsed.hostname,
+          port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
+          path: parsed.pathname + parsed.search,
+          method: options.method || "GET",
+          headers: options.headers || {},
+          rejectUnauthorized: false,
+        },
+        (res) => {
+          const chunks = [];
+          res.on("data", (c) => chunks.push(c));
+          res.on("end", () => {
+            const body = Buffer.concat(chunks);
+            resolve({
+              ok: res.statusCode >= 200 && res.statusCode < 300,
+              status: res.statusCode,
+              headers: res.headers,
+              body,
+              json: async () => JSON.parse(body.toString("utf-8")),
+              text: async () => body.toString("utf-8"),
+            });
+          });
+        },
+      );
+      req.on("error", reject);
+      if (options.body) req.write(options.body);
+      req.end();
+    });
+  }
+
+  ipcMain.handle("download-resource", async (_e, resourceId, resourceName) => {
+    if (!resourceId) return { ok: false, error: "missing resourceId" };
+    try {
+      // 读取认证令牌
+      const authPath = path.join(getDataDir(), "auth_tokens.json");
+      let auth = {};
+      try { auth = JSON.parse(fs.readFileSync(authPath, "utf8")); } catch (_) {}
+      const token = auth.iclass_token;
+      if (!token) return { ok: false, error: "认证令牌不存在，请先同步" };
+
+      const apiBase = auth.api_base || "https://apiucloud.bupt.edu.cn";
+
+      // 1) 获取预签名下载 URL
+      appLog(`[资源] 获取下载链接: ${resourceName || resourceId}`);
+      const purlResp = await httpRequest(
+        `${apiBase}/blade-source/resource/preview-url?resourceId=${resourceId}`,
+        {
+          headers: {
+            "Blade-Auth": token,
+            "Authorization": auth.authorization || "Basic c3dvcmQ6c3dvcmRfc2VjcmV0",
+            "Tenant-Id": auth.tenant_id || "000000",
+          },
+        },
+      );
+      if (!purlResp.ok) {
+        const body = await purlResp.text().catch(() => "");
+        return { ok: false, error: `获取下载链接失败 (${purlResp.status})` };
+      }
+      const purlData = await purlResp.json();
+      appLog(`[资源] preview-url 响应: ${JSON.stringify(purlData).slice(0, 200)}`);
+      const downloadUrl = (purlData.data && (purlData.data.previewUrl || purlData.data.downloadUrl));
+      if (!downloadUrl) return { ok: false, error: "未获取到下载地址" };
+
+      // 2) 下载文件
+      appLog(`[资源] 开始下载: ${resourceName || resourceId}`);
+      const fileResp = await httpRequest(downloadUrl);
+      if (!fileResp.ok) return { ok: false, error: `下载失败 (${fileResp.status})` };
+      const buffer = Buffer.from(fileResp.body);
+
+      // 3) 保存到本地（使用配置的下载目录）
+      const name = resourceName
+        ? resourceName.replace(/[\\/:*?"<>|]/g, "_")
+        : `resource_${resourceId}`;
+      const prefs = readElectronPrefs();
+      const baseDir = prefs.downloadDir || path.join(getDataDir(), "attachments");
+      const filePath = path.join(baseDir, name);
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, buffer);
+      appLog(`[资源] 下载完成: ${name} (${buffer.length} bytes)`);
+
+      // 4) 显示下载完成通知
+      const notif = new Notification({
+        title: "下载完成",
+        body: `${name}\n点击在文件夹中显示`,
+      });
+      notif.on("click", () => {
+        shell.showItemInFolder(filePath);
+      });
+      notif.show();
+
+      // 5) 打开文件夹并打开文件
+      shell.showItemInFolder(filePath);
+      shell.openPath(filePath);
+      return { ok: true, filePath };
+    } catch (e) {
+      appLog(`[资源] 下载异常: ${resourceName || resourceId}`, e);
+      return { ok: false, error: String(e.message || e) };
+    }
+  });
+
+  ipcMain.handle("get-download-dir", () => {
+    const prefs = readElectronPrefs();
+    return prefs.downloadDir || null;
+  });
+
+  ipcMain.handle("set-download-dir", (_e, dir) => {
+    const merged = writeElectronPrefs({ downloadDir: dir || null });
+    broadcastPrefsChanged();
+    return { ok: true, downloadDir: merged.downloadDir };
+  });
+
+  ipcMain.handle("select-download-dir", async () => {
+    const prefs = readElectronPrefs();
+    const defaultPath = prefs.downloadDir || getDataDir();
+    const result = await dialog.showOpenDialog({
+      defaultPath,
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
+    return { ok: true, path: result.filePaths[0] };
   });
 
   ipcMain.handle("close-login-window", () => {

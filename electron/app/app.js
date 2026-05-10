@@ -251,6 +251,62 @@ function sanitizeHtml(html) {
     .replace(/ on\w+='[^']*'/gi, "");
 }
 
+// ===== Shared time utility functions =====
+function parseDueDate(due) {
+  if (!due || typeof due !== "string") return null;
+  var s = due.trim();
+  if (!s) return null;
+
+  var m = s.match(/(\d{4})\s*[-/年]\s*(\d{1,2})\s*[-/月]\s*(\d{1,2})/);
+  if (!m) return null;
+
+  var y = parseInt(m[1], 10);
+  var mo = parseInt(m[2], 10) - 1;
+  var d = parseInt(m[3], 10);
+  var hh = 23;
+  var mm = 59;
+  var ss = 0;
+
+  var tm = s.match(/(\d{1,2})\s*:\s*(\d{2})(?::(\d{2}))?/);
+  if (tm) {
+    hh = parseInt(tm[1], 10);
+    mm = parseInt(tm[2], 10);
+    if (tm[3] != null) ss = parseInt(tm[3], 10);
+  }
+
+  var dt = new Date(y, mo, d, hh, mm, ss);
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
+function isOverdue(due) {
+  var dt = parseDueDate(due);
+  if (!dt) return false;
+  return (dt.getTime() - Date.now()) / 3600000 < 0;
+}
+
+function hoursUntil(due) {
+  var dt = parseDueDate(due);
+  if (!dt) return null;
+  return (dt.getTime() - Date.now()) / 3600000;
+}
+
+function urgencyLabel(it) {
+  if (it.submitted) return "已提交";
+  if (isOverdue(it.due)) return "已逾期";
+  var dt = parseDueDate(it.due);
+  if (!dt) return "";
+  var hours = (dt.getTime() - Date.now()) / 3600000;
+  if (hours < 24) return "即将截止";
+  if (hours < 72) return "临近截止";
+  return "";
+}
+
+function formatDueDisplay(due) {
+  if (!due) return "";
+  var s = due.replace(/截止\s*$/, "").trim();
+  return s.length > 30 ? s.slice(0, 30) + "..." : s;
+}
+
 // ===== Tasks Tab =====
 (function () {
   var statusTasks = document.getElementById("status-tasks");
@@ -259,8 +315,6 @@ function sanitizeHtml(html) {
   var tasksCount = document.getElementById("tasks-count");
   var tasksUpdated = document.getElementById("tasks-updated");
   var btnSyncTasks = document.getElementById("btn-sync-tasks");
-  var searchInput = document.getElementById("tasks-search");
-  var searchClear = document.getElementById("tasks-search-clear");
   var filterCourse = document.getElementById("tasks-filter-course");
   var filterStatus = document.getElementById("tasks-filter-status");
   var tasksToolbar = document.querySelector(".tasks-toolbar");
@@ -273,64 +327,6 @@ function sanitizeHtml(html) {
   function setTasksStatus(text, isErr) {
     statusTasks.textContent = text;
     statusTasks.classList.toggle("err", !!isErr);
-  }
-
-  // Parse due string to Date. Returns null if unparseable.
-  function parseDueDate(due) {
-    if (!due || typeof due !== "string") return null;
-    var s = due.trim();
-    if (!s) return null;
-
-    // YYYY-MM-DD HH:MM:SS or YYYY-MM-DD HH:MM (with optional "截止" suffix)
-    var m = s.match(/(\d{4})\s*[-/年]\s*(\d{1,2})\s*[-/月]\s*(\d{1,2})/);
-    if (!m) return null;
-
-    var y = parseInt(m[1], 10);
-    var mo = parseInt(m[2], 10) - 1;
-    var d = parseInt(m[3], 10);
-    var hh = 23;
-    var mm = 59;
-    var ss = 0;
-
-    var tm = s.match(/(\d{1,2})\s*:\s*(\d{2})(?::(\d{2}))?/);
-    if (tm) {
-      hh = parseInt(tm[1], 10);
-      mm = parseInt(tm[2], 10);
-      if (tm[3] != null) ss = parseInt(tm[3], 10);
-    }
-
-    var dt = new Date(y, mo, d, hh, mm, ss);
-    return isNaN(dt.getTime()) ? null : dt;
-  }
-
-  function isOverdue(due) {
-    var dt = parseDueDate(due);
-    if (!dt) return false;
-    return (dt.getTime() - Date.now()) / 3600000 < 0;
-  }
-
-  function hoursUntil(due) {
-    var dt = parseDueDate(due);
-    if (!dt) return null;
-    return (dt.getTime() - Date.now()) / 3600000;
-  }
-
-  function urgencyLabel(it) {
-    if (it.submitted) return "已提交";
-    if (isOverdue(it.due)) return "已逾期";
-    var dt = parseDueDate(it.due);
-    if (!dt) return "";
-    var hours = (dt.getTime() - Date.now()) / 3600000;
-    if (hours < 24) return "即将截止";
-    if (hours < 72) return "临近截止";
-    return "";
-  }
-
-  function formatDueDisplay(due) {
-    if (!due) return "";
-    // Clean up: remove trailing "截止", limit length
-    var s = due.replace(/截止\s*$/, "").trim();
-    return s.length > 30 ? s.slice(0, 30) + "..." : s;
   }
 
   function buildCourseFilter(items) {
@@ -357,7 +353,6 @@ function sanitizeHtml(html) {
   }
 
   function applyFilters() {
-    var searchText = (searchInput.value || "").trim().toLowerCase();
     var courseVal = filterCourse.value;
     var statusVal = filterStatus.value;
 
@@ -377,11 +372,6 @@ function sanitizeHtml(html) {
       if (statusVal === "upcoming") {
         var h3 = hoursUntil(it.due);
         if (h3 === null || h3 < 72 || h3 >= 168) return false;
-      }
-      if (searchText) {
-        var title = (it.title || "").toLowerCase();
-        var course = (it.course || "").toLowerCase();
-        if (title.indexOf(searchText) === -1 && course.indexOf(searchText) === -1) return false;
       }
       return true;
     });
@@ -407,7 +397,6 @@ function sanitizeHtml(html) {
       tasksEmpty.style.display = "flex";
       tasksCount.textContent = "";
       tasksUpdated.textContent = "";
-      searchClear.style.display = "none";
       return;
     }
 
@@ -533,17 +522,6 @@ function sanitizeHtml(html) {
   // Event listeners
   btnSyncTasks.addEventListener("click", doTasksSync);
 
-  searchInput.addEventListener("input", function () {
-    searchClear.style.display = searchInput.value ? "block" : "none";
-    renderTasks();
-  });
-
-  searchClear.addEventListener("click", function () {
-    searchInput.value = "";
-    searchClear.style.display = "none";
-    renderTasks();
-  });
-
   filterCourse.addEventListener("change", function () {
     renderTasks();
   });
@@ -551,6 +529,25 @@ function sanitizeHtml(html) {
   filterStatus.addEventListener("change", function () {
     renderTasks();
   });
+
+  // Fix Chromium <select> 下拉菜单被 overflow:hidden 裁剪的问题
+  function fixSelectOverflow(sel) {
+    var panel = sel.closest(".tab-panel");
+    if (!panel) return;
+    sel.addEventListener("mousedown", function () {
+      panel.style.overflow = "visible";
+    });
+    sel.addEventListener("change", function () {
+      panel.style.overflowY = "auto";
+      panel.style.overflowX = "hidden";
+    });
+    sel.addEventListener("blur", function () {
+      panel.style.overflowY = "auto";
+      panel.style.overflowX = "hidden";
+    });
+  }
+  fixSelectOverflow(filterCourse);
+  fixSelectOverflow(filterStatus);
 
   // Listen for cache updates
   if (window.buptHw.onCacheUpdated) {
@@ -662,6 +659,62 @@ function sanitizeHtml(html) {
 
   taskDetailBack.addEventListener("click", hideTaskDetail);
 
+  // 监听课程页传来的「查看作业详情」事件
+  document.addEventListener("show-task-detail", function (e) {
+    var item = e.detail;
+    if (item) showTaskDetail(item, null);
+  });
+
+  // 拦截附件链接点击：非图片文件在文件夹中显示
+  taskDetailBody.addEventListener("click", function (e) {
+    var link = e.target.closest("a[href^='attachment:///']");
+    if (link) {
+      e.preventDefault();
+      var fileHref = link.getAttribute("href");
+      var filePath = decodeURIComponent(fileHref.replace(/^attachment:\/\/\//, ""));
+      var isImage = /\.(png|jpe?g|gif|bmp|webp|svg)$/i.test(filePath);
+      if (!isImage) {
+        var win = window.buptHw;
+        if (win.showInFolder) win.showInFolder(filePath);
+        if (win.openFile) win.openFile(filePath);
+      }
+      return;
+    }
+
+    // 教师上传的资源附件：点击后实时下载
+    var resLink = e.target.closest("a.resource-download");
+    if (resLink) {
+      e.preventDefault();
+      var rid = resLink.getAttribute("data-resource-id");
+      var rname = resLink.getAttribute("data-resource-name") || "";
+      var filePath = resLink.getAttribute("data-file-path");
+
+      // 如果已经下载过，直接打开文件夹
+      if (filePath && window.buptHw.showInFolder) {
+        window.buptHw.showInFolder(filePath);
+        return;
+      }
+
+      if (rid && window.buptHw.downloadResource) {
+        // 禁用链接，显示下载中
+        resLink.style.opacity = "0.5";
+        resLink.style.pointerEvents = "none";
+        resLink.textContent = "下载中... " + rname;
+        window.buptHw.downloadResource(rid, rname).then(function (result) {
+          if (!result.ok) {
+            resLink.style.opacity = "1";
+            resLink.style.pointerEvents = "auto";
+            resLink.textContent = "\u{1F4CE} " + rname + "（下载失败: " + (result.error || "未知错误") + "）";
+          } else {
+            // 保存路径，下次点击打开文件夹
+            resLink.setAttribute("data-file-path", result.filePath);
+            resLink.textContent = "📂 " + rname;
+          }
+        });
+      }
+    }
+  });
+
   // Init
   loadTasksCache();
 })();
@@ -674,8 +727,11 @@ function loadCourses() {
   var coursesEmpty = document.getElementById("courses-empty");
   var coursesCount = document.getElementById("courses-count");
   var statusCourses = document.getElementById("status-courses");
-  var searchInput = document.getElementById("courses-search");
-  var searchClear = document.getElementById("courses-search-clear");
+  var courseDetailEl = document.getElementById("course-detail");
+  var courseDetailName = document.getElementById("course-detail-name");
+  var courseDetailItems = document.getElementById("course-detail-items");
+  var courseDetailBack = document.getElementById("course-detail-back");
+  var allCachedItems = [];
 
   function setStatus(text, isErr) {
     statusCourses.textContent = text;
@@ -693,23 +749,25 @@ function loadCourses() {
     coursesEmpty.style.display = "none";
     coursesCount.textContent = courses.length + " 门";
 
-    var searchText = (searchInput.value || "").trim().toLowerCase();
-    var filtered = courses;
-    if (searchText) {
-      filtered = courses.filter(function (c) {
-        return (c.siteName || "").toLowerCase().indexOf(searchText) !== -1;
-      });
-    }
+    // Build per-course stats from cached items
+    var stats = {};
+    allCachedItems.forEach(function (it) {
+      var c = (it.course || "").trim();
+      if (!c) return;
+      if (!stats[c]) stats[c] = { total: 0, unsubmitted: 0 };
+      stats[c].total++;
+      if (!it.submitted) stats[c].unsubmitted++;
+    });
 
     var frag = document.createDocumentFragment();
-    filtered.forEach(function (course) {
-      var card = document.createElement("div");
-      card.className = "course-card";
-
+    courses.forEach(function (course) {
       var name = course.siteName || "未知课程";
       var initial = name.charAt(0).toUpperCase();
       var color = stringToColor(name);
+      var s = stats[name] || { total: 0, unsubmitted: 0 };
 
+      var card = document.createElement("div");
+      card.className = "course-card";
       card.style.setProperty("--course-color", color);
 
       card.innerHTML =
@@ -718,8 +776,17 @@ function loadCourses() {
         "</div>" +
         '<div class="course-card-body">' +
           '<p class="course-name">' + escapeHtml(name) + "</p>" +
-          '<p class="course-id">ID: ' + escapeHtml(course.id || "") + "</p>" +
+          '<p class="course-id">' + escapeHtml(course.id || "") + "</p>" +
+          '<div class="course-stats">' +
+            '<span class="course-stat">作业 ' + s.total + '</span>' +
+            (s.unsubmitted > 0 ? '<span class="course-stat course-stat-pending">未交 ' + s.unsubmitted + '</span>' : '<span class="course-stat course-stat-done">已交齐</span>') +
+          "</div>" +
         "</div>";
+
+      card.style.cursor = "pointer";
+      card.addEventListener("click", function () {
+        showCourseDetail(name);
+      });
 
       frag.appendChild(card);
     });
@@ -728,8 +795,101 @@ function loadCourses() {
     coursesList.appendChild(frag);
   }
 
+  function showCourseDetail(courseName) {
+    coursesList.style.display = "none";
+    coursesEmpty.style.display = "none";
+    courseDetailEl.style.display = "block";
+    courseDetailName.textContent = courseName;
+
+    var items = allCachedItems.filter(function (it) {
+      return (it.course || "").trim() === courseName;
+    });
+
+    // Sort by due date
+    items.sort(function (a, b) {
+      var da = parseDueDate(a.due);
+      var db = parseDueDate(b.due);
+      if (da && db) return da.getTime() - db.getTime();
+      if (da && !db) return -1;
+      if (!da && db) return 1;
+      return (a.title || "").localeCompare(b.title || "");
+    });
+
+    if (!items.length) {
+      courseDetailItems.innerHTML = '<p style="color:var(--muted,#8b9bb4);padding:20px;text-align:center">该课程暂无作业</p>';
+      setStatus(courseName + " — 暂无作业");
+      return;
+    }
+
+    var frag = document.createDocumentFragment();
+    items.forEach(function (it) {
+      var card = document.createElement("div");
+      card.className = "task-card";
+      if (it.submitted) {
+        card.classList.add("submitted");
+      } else if (isOverdue(it.due)) {
+        card.style.setProperty("--task-color", "var(--err, #f08080)");
+      } else {
+        var h = hoursUntil(it.due);
+        if (h !== null && h < 24) card.style.setProperty("--task-color", "var(--warn, #e8a045)");
+        else if (h !== null && h < 72) card.style.setProperty("--task-color", "#c9a845");
+      }
+
+      var label = urgencyLabel(it);
+      var dueText = formatDueDisplay(it.due);
+      var dueHtml = escapeHtml(dueText);
+      if (it.submitted) {
+        dueHtml = '<span class="submitted-tag">已提交</span>';
+      } else if (label) {
+        dueHtml = '<span class="due-label">' + label + "</span>" + dueHtml;
+      }
+
+      var dueCls = "";
+      if (it.submitted) dueCls = "normal";
+      else if (isOverdue(it.due)) dueCls = "overdue";
+
+      card.innerHTML =
+        '<div class="task-row" style="padding:12px 16px">' +
+          '<div class="task-info">' +
+            '<p class="task-title">' + escapeHtml(it.title || "（无标题）") + "</p>" +
+          "</div>" +
+          '<div class="task-due ' + dueCls + '">' +
+            dueHtml +
+          "</div>" +
+        "</div>";
+
+      card.style.cursor = "pointer";
+      card.addEventListener("click", function () {
+        // Switch to tasks tab and show detail
+        saveScrollPosition();
+        switchTab(1);
+        // Need a small delay for the tab to render
+        setTimeout(function () {
+          // Dispatch a custom event that the tasks tab can pick up
+          var evt = new CustomEvent("show-task-detail", { detail: it });
+          document.dispatchEvent(evt);
+        }, 50);
+      });
+
+      frag.appendChild(card);
+    });
+
+    courseDetailItems.innerHTML = "";
+    courseDetailItems.appendChild(frag);
+    setStatus(courseName + " — " + items.length + " 项作业");
+  }
+
+  function hideCourseDetail() {
+    courseDetailEl.style.display = "none";
+    coursesList.style.display = "";
+    setStatus("");
+  }
+
+  courseDetailBack.addEventListener("click", hideCourseDetail);
+
   function loadCoursesCache() {
     window.buptHw.getCache().then(function (data) {
+      allCachedItems = data.items || [];
       var courses = data.courses || [];
       renderCourses(courses);
       if (courses.length > 0) {
@@ -742,21 +902,6 @@ function loadCourses() {
       renderCourses([]);
     });
   }
-
-  searchInput.addEventListener("input", function () {
-    searchClear.style.display = searchInput.value ? "block" : "none";
-    window.buptHw.getCache().then(function (data) {
-      renderCourses(data.courses || []);
-    });
-  });
-
-  searchClear.addEventListener("click", function () {
-    searchInput.value = "";
-    searchClear.style.display = "none";
-    window.buptHw.getCache().then(function (data) {
-      renderCourses(data.courses || []);
-    });
-  });
 
   if (window.buptHw.onCacheUpdated) {
     window.buptHw.onCacheUpdated(loadCoursesCache);
@@ -832,6 +977,15 @@ async function loadSettings() {
     if (cool1d) cool1d.value = String(p.alertCooldown1dMin ?? 120);
     if (coolU) coolU.value = String(p.alertCooldownUrgentMin ?? 30);
     if (pollMin) pollMin.value = String(p.alertPollMinutes ?? 15);
+
+    // 下载路径
+    var dlDir = el("download-dir");
+    if (dlDir) {
+      try {
+        var savedDir = await window.buptHw.getDownloadDir();
+        dlDir.value = savedDir || "";
+      } catch (_) {}
+    }
 
     try {
       var creds = await window.buptHw.getCredentialsConfig();
@@ -915,6 +1069,12 @@ async function saveSettings() {
     var coolU = el("cool-u");
     var pollMin = el("poll-min");
 
+    // 保存下载路径
+    var dlDirEl = el("download-dir");
+    if (dlDirEl) {
+      await window.buptHw.setDownloadDir(dlDirEl.value.trim() || null);
+    }
+
     await window.buptHw.setStartupPrefs({
       startupOpenMode: startupOpenMode,
       openAtLogin: chkBoot ? chkBoot.checked : false,
@@ -937,6 +1097,26 @@ async function saveSettings() {
   }
 }
 
+// 下载目录浏览按钮
+function setupDownloadDirBrowse() {
+  var btn = document.getElementById("settings-btn-browse-dir");
+  var input = document.getElementById("settings-download-dir");
+  if (!btn || !input) return;
+  btn.addEventListener("click", async function () {
+    var result = await window.buptHw.selectDownloadDir();
+    if (result.ok && result.path) {
+      input.value = result.path;
+    }
+  });
+  // 点击输入框也可以选择目录
+  input.addEventListener("click", async function () {
+    var result = await window.buptHw.selectDownloadDir();
+    if (result.ok && result.path) {
+      input.value = result.path;
+    }
+  });
+}
+
 // Theme radio listeners + save button
 document.addEventListener("DOMContentLoaded", function () {
   var themeRadios = document.querySelectorAll('input[name="theme"]');
@@ -950,6 +1130,8 @@ document.addEventListener("DOMContentLoaded", function () {
   if (saveBtn) {
     saveBtn.addEventListener("click", saveSettings);
   }
+
+  setupDownloadDirBrowse();
 });
 
 // ===== Initialize =====

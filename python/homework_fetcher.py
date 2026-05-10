@@ -10,6 +10,7 @@ import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse, unquote
 import yaml
 from playwright.sync_api import Page, Response, sync_playwright
 
@@ -612,7 +613,7 @@ def _convert_work_records_to_items(
                 # 如果已经从 work/detail 获取了内容，填充到 item
                 ac = rec.get("assignmentContent", "") or ""
                 if ac and not ex.content:
-                    ex.content = ac[:3000]
+                    ex.content = ac[:20000]
                 items.append(ex)
         else:
             # Fallback: 直接从已知字段构建
@@ -676,9 +677,12 @@ def _enrich_work_records_with_details(
                 content = detail.get("assignmentContent", "") or ""
                 comment = detail.get("assignmentComment", "") or ""
                 if content or comment:
-                    rec["assignmentContent"] = content[:10000]
+                    rec["assignmentContent"] = content[:15000]
                     rec["assignmentComment"] = comment[:3000]
                     enriched += 1
+                resources = detail.get("assignmentResource")
+                if resources:
+                    rec["assignmentResource"] = resources
             else:
                 failed += 1
         except Exception:
@@ -688,6 +692,119 @@ def _enrich_work_records_with_details(
             info(f"[作业详情] 已获取 {enriched}/{i+1} 条详情...")
 
     info(f"[作业详情] 完成: {enriched} 条成功, {failed} 条失败")
+    return work_records
+
+
+def _save_auth_token(iclass_token: str) -> None:
+    """将 iClass 认证令牌保存到文件，供 Electron 主进程下载资源时使用。"""
+    if not iclass_token:
+        return
+    try:
+        auth = {
+            "iclass_token": iclass_token,
+            "authorization": "Basic c3dvcmQ6c3dvcmRfc2VjcmV0",
+            "tenant_id": "000000",
+            "api_base": "https://apiucloud.bupt.edu.cn",
+        }
+        (DATA_DIR / "auth_tokens.json").write_text(
+            json.dumps(auth, ensure_ascii=False), encoding="utf-8"
+        )
+    except Exception as e:
+        warn(f"[认证] 保存令牌失败: {e}")
+
+
+def _download_attachments(
+    context,
+    work_records: list[dict[str, Any]],
+    iclass_token: str,
+) -> list[dict[str, Any]]:
+    """解析作业内容中的附件链接，下载附件到本地并替换路径。"""
+    if not work_records or not iclass_token:
+        return work_records
+
+    # 保存令牌供 Electron 使用
+    _save_auth_token(iclass_token)
+
+    headers = {"Blade-Auth": iclass_token}
+    api = context.request
+    ATTACHMENT_HOST = "fileucloud.bupt.edu.cn"
+    downloaded = 0
+    failed = 0
+
+    for rec in work_records:
+        content = rec.get("assignmentContent", "") or ""
+        aid = rec.get("id") or rec.get("activityId", "")
+        if not aid:
+            continue
+        att_dir = DATA_DIR / "attachments" / str(aid)
+        att_dir.mkdir(parents=True, exist_ok=True)
+
+        # ---- 1) 处理 assignmentContent HTML 中的附件 URL ----
+        if content:
+            urls = set(re.findall(
+                r'(https?://' + re.escape(ATTACHMENT_HOST) + r'[^\s"\'<>&]+)',
+                content,
+            ))
+            for url in urls:
+                try:
+                    resp = api.get(url, headers=headers)
+                    if resp.status != 200:
+                        failed += 1
+                        continue
+
+                    # 从 Content-Disposition 或 URL 中提取文件名
+                    cd = resp.headers.get("content-disposition", "")
+                    filename = ""
+                    if cd:
+                        m = re.search(r'filename\*?=(?:UTF-8\'\')?([^;\s]+)', cd)
+                        if m:
+                            filename = unquote(m.group(1).strip().strip("'\""))
+                    if not filename:
+                        parsed = urlparse(url)
+                        filename = unquote(Path(parsed.path).name)
+                    if not filename:
+                        filename = f"attachment_{len(list(att_dir.iterdir()))}"
+
+                    filename = re.sub(r'[\\/:*?"<>|]', '_', filename)
+                    file_path = att_dir / filename
+                    file_path.write_bytes(resp.body())
+                    content = content.replace(url, "attachment:///" + file_path.as_posix())
+                    downloaded += 1
+                    info(f"[附件] 已下载: {filename} ({aid})")
+                except Exception as e:
+                    failed += 1
+                    warn(f"[附件] 下载失败: {url[:80]}... {e}")
+
+        # ---- 2) 处理 assignmentResource（教师上传的附件：贴下载链接，不预下载） ----
+        resources = rec.get("assignmentResource", [])
+        if isinstance(resources, list):
+            for res in resources:
+                rid = res.get("resourceId", "")
+                rname = res.get("resourceName", "") or f"附件_{rid}"
+                if not rid:
+                    continue
+                is_img = bool(re.search(r'\.(png|jpe?g|gif|bmp|webp|svg)$', rname, re.I))
+                if is_img:
+                    link_html = (
+                        f'<p><a href="#resource-dl" class="resource-download" '
+                        f'data-resource-id="{rid}" data-resource-name="{rname}">'
+                        f'&#x1F5BC; {rname}</a> '
+                        f'<span class="resource-dl-hint">（点击下载）</span></p>'
+                    )
+                else:
+                    link_html = (
+                        f'<p><a href="#resource-dl" class="resource-download" '
+                        f'data-resource-id="{rid}" data-resource-name="{rname}">'
+                        f'&#x1F4CE; {rname}</a></p>'
+                    )
+                if content:
+                    content += "\n" + link_html
+                else:
+                    content = link_html
+
+        rec["assignmentContent"] = content[:20000]
+
+    info(f"[附件] 完成: {downloaded} 个成功, {failed} 个失败")
     return work_records
 
 
@@ -1006,6 +1123,7 @@ def fetch_homework(
                                     _enrich_work_records_with_details(
                                         context, work_records, detail_token
                                     )
+                                    _download_attachments(context, work_records, detail_token)
                                 extra_items = _convert_work_records_to_items(work_records, undone_ids)
                                 if extra_items:
                                     print(
