@@ -18,6 +18,7 @@ function loadCourses() {
   var _coursePrefs = {};
   var _editMode = false;
   var _dragSrcIndex = -1;
+  var _dragScrollTimer = null;
 
   function setStatus(text, isErr) {
     statusCourses.textContent = text;
@@ -126,6 +127,7 @@ function loadCourses() {
           document.querySelectorAll(".course-card.drag-over").forEach(function (el) {
             el.classList.remove("drag-over");
           });
+          stopDragAutoScroll();
         });
         card.addEventListener("dragover", function (e) {
           e.preventDefault();
@@ -568,10 +570,55 @@ function loadCourses() {
     }).catch(function () { _coursePrefs = {}; });
   }
 
+  var _scrollPanel = null;
+
+  var _dragSpeed = 0;
+
+  function startDragAutoScroll(e) {
+    if (!_editMode) return;
+    if (!_scrollPanel) _scrollPanel = coursesList.closest(".tab-panel");
+    if (!_scrollPanel) return;
+    var rect = _scrollPanel.getBoundingClientRect();
+    var y = e.clientY;
+    var threshold = 160;
+    var maxSpeed = 40;
+    if (y - rect.top < threshold) {
+      _dragSpeed = -maxSpeed * (1 - (y - rect.top) / threshold);
+    } else if (rect.bottom - y < threshold) {
+      _dragSpeed = maxSpeed * (1 - (rect.bottom - y) / threshold);
+    } else {
+      _dragSpeed = 0;
+    }
+    if (_dragSpeed !== 0 && !_dragScrollTimer) {
+      _dragScrollTimer = setInterval(function () {
+        _scrollPanel.scrollTop += _dragSpeed;
+      }, 16);
+    } else if (_dragSpeed === 0 && _dragScrollTimer) {
+      clearInterval(_dragScrollTimer);
+      _dragScrollTimer = null;
+    }
+  }
+
+  function stopDragAutoScroll() {
+    if (_dragScrollTimer) {
+      clearInterval(_dragScrollTimer);
+      _dragScrollTimer = null;
+    }
+  }
+
+  // Listen on document so title bar area is included
+  document.addEventListener("dragover", function (e) {
+    startDragAutoScroll(e);
+  });
+  document.addEventListener("dragend", function () {
+    stopDragAutoScroll();
+  });
+
   function toggleEditMode() {
     _editMode = !_editMode;
     var btn = document.getElementById("btn-course-edit");
     if (btn) btn.classList.toggle("active", _editMode);
+    if (!_editMode) stopDragAutoScroll();
     renderCourses(_savedCourses);
     setStatus(_editMode ? "编辑模式：拖拽排序、点击头像换色、点击名称改名" : "");
   }
