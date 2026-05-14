@@ -369,10 +369,143 @@
       taskDetailBody.innerHTML = '<p style="color:var(--muted,#8b9bb4)">暂无作业内容</p>';
     }
 
+    // Submit form (only for unsubmitted items with assignment_id)
+    var submitSection = document.getElementById("task-submit-section");
+    if (!item.submitted && item.assignment_id) {
+      if (!submitSection) {
+        submitSection = document.createElement("div");
+        submitSection.id = "task-submit-section";
+        submitSection.className = "task-submit-section";
+        submitSection.innerHTML =
+          '<div class="task-submit-divider"></div>' +
+          '<h4 class="task-submit-heading">提交作业</h4>' +
+          '<textarea id="task-submit-content" class="task-submit-textarea" placeholder="输入作业内容..." rows="6"></textarea>' +
+          '<div class="task-submit-attach">' +
+            '<span class="task-submit-file-label">附件（可选）</span>' +
+            '<button id="task-submit-file-btn" class="btn task-submit-file-btn">+ 添加附件</button>' +
+            '<div id="task-submit-file-list" class="task-submit-file-list"></div>' +
+          '</div>' +
+          '<p id="task-submit-status" class="task-submit-status"></p>' +
+          '<button id="task-submit-btn" class="btn primary task-submit-btn">提交</button>';
+        taskDetailEl.appendChild(submitSection);
+
+        var fileList = [];
+
+        function renderFileList() {
+          var html = "";
+          fileList.forEach(function (f, i) {
+            html += '<div class="task-submit-file-item ' + (f.uploaded ? 'uploaded' : (f.error ? 'error' : 'uploading')) + '">' +
+              '<span class="task-submit-file-name">' + escapeHtml(f.name) + '</span>' +
+              (f.uploaded ? '<span class="task-submit-file-ok">已上传</span>' :
+               f.error ? '<span class="task-submit-file-err">' + escapeHtml(f.error) + '</span>' :
+               '<span class="task-submit-file-status">上传中...</span>') +
+              '<button class="task-submit-file-remove" data-idx="' + i + '">x</button>' +
+              '</div>';
+          });
+          document.getElementById("task-submit-file-list").innerHTML = html;
+        }
+
+        document.getElementById("task-submit-file-btn").addEventListener("click", function () {
+          window.buptHw.selectFiles().then(function (res) {
+            if (!res.ok || !res.files) return;
+            res.files.forEach(function (f) {
+              var entry = { name: f.name, path: f.path, uploaded: false, url: "", error: "" };
+              fileList.push(entry);
+              renderFileList();
+              window.buptHw.uploadAttachment({ filePath: f.path, fileName: f.name }).then(function (res2) {
+                if (res2.ok && res2.fileUrl) {
+                  entry.uploaded = true;
+                  entry.url = res2.fileUrl;
+                } else {
+                  entry.error = res2.error || "上传失败";
+                }
+                renderFileList();
+              });
+            });
+          });
+        });
+
+        // Delegate remove clicks
+        document.getElementById("task-submit-file-list").addEventListener("click", function (e) {
+          var btn = e.target.closest(".task-submit-file-remove");
+          if (btn) {
+            var idx = parseInt(btn.getAttribute("data-idx"), 10);
+            fileList.splice(idx, 1);
+            renderFileList();
+          }
+        });
+
+        document.getElementById("task-submit-btn").addEventListener("click", function () {
+          var btn = document.getElementById("task-submit-btn");
+          var statusEl = document.getElementById("task-submit-status");
+          var textarea = document.getElementById("task-submit-content");
+          if (!textarea.value.trim()) {
+            statusEl.textContent = "请输入作业内容";
+            statusEl.className = "task-submit-status err";
+            return;
+          }
+          var stillUploading = fileList.some(function (f) { return !f.uploaded && !f.error; });
+          if (stillUploading) {
+            statusEl.textContent = "附件还在上传中，请稍候...";
+            statusEl.className = "task-submit-status err";
+            return;
+          }
+          btn.disabled = true;
+          btn.textContent = "提交中...";
+          statusEl.textContent = "";
+          statusEl.className = "task-submit-status";
+          var content = textarea.value.trim();
+          var uploadedFiles = fileList.filter(function (f) { return f.uploaded; });
+          if (uploadedFiles.length > 0) {
+            content += "\n\n附件：\n";
+            uploadedFiles.forEach(function (f) { content += f.name + ": " + f.url + "\n"; });
+          }
+          window.buptHw.submitHomework({
+            assignmentId: item.assignment_id,
+            content: content,
+            assignmentType: 0,
+          }).then(function (res) {
+            if (res.ok) {
+              statusEl.textContent = "提交成功！";
+              statusEl.className = "task-submit-status ok";
+              textarea.disabled = true;
+              btn.style.display = "none";
+              document.getElementById("task-submit-file-btn").style.display = "none";
+              item.submitted = true;
+              setTasksStatus("作业已提交");
+            } else {
+              statusEl.textContent = "提交失败：" + ((res.data && res.data.msg) || res.error || "未知错误");
+              statusEl.className = "task-submit-status err";
+              btn.disabled = false;
+              btn.textContent = "重试提交";
+            }
+          }).catch(function (e) {
+            statusEl.textContent = "提交异常：" + (e.message || e);
+            statusEl.className = "task-submit-status err";
+            btn.disabled = false;
+            btn.textContent = "重试提交";
+          });
+        });
+      }
+      submitSection.style.display = "";
+      document.getElementById("task-submit-content").value = "";
+      document.getElementById("task-submit-status").textContent = "";
+      document.getElementById("task-submit-status").className = "task-submit-status";
+      document.getElementById("task-submit-btn").disabled = false;
+      document.getElementById("task-submit-btn").textContent = "提交";
+      document.getElementById("task-submit-btn").style.display = "";
+      document.getElementById("task-submit-file-btn").style.display = "";
+      if (document.getElementById("task-submit-file-list")) {
+        document.getElementById("task-submit-file-list").innerHTML = "";
+      }
+    } else if (submitSection) {
+      submitSection.style.display = "none";
+    }
+
     // Trigger expand animation
     taskDetailEl.classList.remove("shrink");
     taskDetailEl.classList.remove("expand");
-    void taskDetailEl.offsetHeight; // force reflow
+    void taskDetailEl.offsetHeight;
     taskDetailEl.style.display = "block";
     taskDetailEl.classList.add("expand");
 

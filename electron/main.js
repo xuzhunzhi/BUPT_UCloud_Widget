@@ -1115,6 +1115,95 @@ if (!gotTheLock) {
     });
   }
 
+  // 上传附件
+  ipcMain.handle("upload-attachment", async (_e, { filePath, fileName }) => {
+    try {
+      const authPath = path.join(getDataDir(), "auth_tokens.json");
+      appLog("[附件] authPath=" + authPath);
+      let auth = {};
+      try { auth = JSON.parse(fs.readFileSync(authPath, "utf8")); } catch (_) {}
+      const token = auth.iclass_token;
+      if (!token) return { ok: false, error: "认证令牌不存在，请先同步: " + authPath };
+
+      const fileBuffer = fs.readFileSync(filePath);
+      const boundary = "----FormBoundary" + Math.random().toString(36).slice(2);
+      const apiBase = auth.api_base || "https://apiucloud.bupt.edu.cn";
+
+      const head = (
+        "--" + boundary + "\r\n" +
+        'Content-Disposition: form-data; name="file"; filename="' + (fileName || "file") + '"\r\n' +
+        "Content-Type: application/octet-stream\r\n\r\n"
+      );
+      const tail = "\r\n--" + boundary + "--\r\n";
+      const body = Buffer.concat([Buffer.from(head, "utf8"), fileBuffer, Buffer.from(tail, "utf8")]);
+
+      appLog("[附件] 上传: " + fileName);
+      const result = await httpRequest(`${apiBase}/blade-source/resource/upload/link?bizType=5`, {
+        method: "POST",
+        headers: {
+          "Blade-Auth": token,
+          "Authorization": auth.authorization || "Basic c3dvcmQ6c3dvcmRfc2VjcmV0",
+          "Tenant-Id": auth.tenant_id || "000000",
+          "Content-Type": "multipart/form-data; boundary=" + boundary,
+          "Content-Length": String(body.length),
+        },
+        body: body,
+      });
+
+      let data;
+      try { data = JSON.parse(result.body); } catch (_) { data = result.body; }
+      const fileUrl = (data && data.data) || "";
+      appLog("[附件] 上传结果: status=" + result.statusCode + " fileUrl=" + (fileUrl ? fileUrl.slice(0, 50) : "empty") + " body=" + String(result.body || "").slice(0, 200));
+      return { ok: result.statusCode >= 200 && result.statusCode < 300 && !!fileUrl, fileUrl, data };
+    } catch (e) {
+      appLog("[附件] 上传失败: " + (e.message || e));
+      return { ok: false, error: e.message || String(e) };
+    }
+  });
+
+  // 提交作业
+  ipcMain.handle("submit-homework", async (_e, { assignmentId, content, assignmentType }) => {
+    if (!assignmentId) return { ok: false, error: "missing assignmentId" };
+    try {
+      const authPath = path.join(getDataDir(), "auth_tokens.json");
+      let auth = {};
+      try { auth = JSON.parse(fs.readFileSync(authPath, "utf8")); } catch (_) {}
+      const token = auth.iclass_token;
+      if (!token) return { ok: false, error: "认证令牌不存在，请先同步" };
+
+      const apiBase = auth.api_base || "https://apiucloud.bupt.edu.cn";
+      const payload = JSON.stringify({
+        assignmentId: String(assignmentId),
+        assignmentContent: content || "",
+        assignmentType: assignmentType || 0,
+        attachmentIds: [],
+        userId: "",
+        groupId: "",
+        commitId: "",
+      });
+
+      appLog("[提交] 提交作业: " + assignmentId);
+      const result = await httpRequest(`${apiBase}/ykt-site/work/submit`, {
+        method: "POST",
+        headers: {
+          "Blade-Auth": token,
+          "Authorization": auth.authorization || "Basic c3dvcmQ6c3dvcmRfc2VjcmV0",
+          "Tenant-Id": auth.tenant_id || "000000",
+          "Content-Type": "application/json",
+        },
+        body: payload,
+      });
+
+      let data;
+      try { data = JSON.parse(result.body); } catch (_) { data = result.body; }
+      const ok = result.statusCode >= 200 && result.statusCode < 300 && (!data || data.success !== false);
+      return { ok, status: result.statusCode, data };
+    } catch (e) {
+      appLog("[提交] 提交失败: " + (e.message || e));
+      return { ok: false, error: e.message || String(e) };
+    }
+  });
+
   ipcMain.handle("download-resource", async (_e, resourceId, resourceName) => {
     if (!resourceId) return { ok: false, error: "missing resourceId" };
     try {
@@ -1205,6 +1294,19 @@ if (!gotTheLock) {
     });
     if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
     return { ok: true, path: result.filePaths[0] };
+  });
+
+  ipcMain.handle("select-files", async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ["openFile", "multiSelections"],
+      filters: [
+        { name: "所有支持的文件", extensions: ["txt","doc","docx","pdf","xls","xlsx","ppt","pptx","jpg","png","gif","mp3","mp4","zip","rar","7z"] },
+        { name: "所有文件", extensions: ["*"] },
+      ],
+    });
+    if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
+    const path = require("path");
+    return { ok: true, files: result.filePaths.map(p => ({ path: p, name: path.basename(p) })) };
   });
 
   ipcMain.handle("close-login-window", () => {

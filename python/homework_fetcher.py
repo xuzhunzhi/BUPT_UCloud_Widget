@@ -608,6 +608,8 @@ def _convert_work_records_to_items(
             for ex in extracted:
                 if not ex.course:
                     ex.course = str(rec.get("_course_name", ""))
+                if not ex.assignment_id:
+                    ex.assignment_id = str(activity_id)
                 if not ex.submitted and undone_ids and activity_id:
                     ex.submitted = activity_id not in undone_ids
                 # 如果已经从 work/detail 获取了内容，填充到 item
@@ -637,6 +639,7 @@ def _convert_work_records_to_items(
                 url="",
                 submitted=submitted,
                 content=content[:3000] if content else "",
+                assignment_id=str(activity_id),
             ))
 
     return _dedupe_homework_items(items)

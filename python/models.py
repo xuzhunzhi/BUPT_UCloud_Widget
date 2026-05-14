@@ -13,6 +13,7 @@ class HomeworkItem:
     url: str = ""
     submitted: bool = False
     content: str = ""
+    assignment_id: str = ""
 
 
 # homework_cache.json 版本，便于以后迁移字段
