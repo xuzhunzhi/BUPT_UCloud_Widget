@@ -19,6 +19,12 @@ contextBridge.exposeInMainWorld("buptHw", {
   setTheme: (t) => ipcRenderer.invoke("set-theme", t),
   getSyncIntervalMinutes: () => ipcRenderer.invoke("get-sync-interval-minutes"),
   setSyncIntervalMinutes: (min) => ipcRenderer.invoke("set-sync-interval-minutes", min),
+  windowMinimize: () => ipcRenderer.invoke("window-minimize"),
+  windowMaximizeToggle: () => ipcRenderer.invoke("window-maximize-toggle"),
+  windowClose: () => ipcRenderer.invoke("window-close"),
+  windowSetAlwaysOnTop: (flag) => ipcRenderer.invoke("window-set-always-on-top", flag),
+  windowGetAlwaysOnTop: () => ipcRenderer.invoke("window-get-always-on-top"),
+  windowIsMaximized: () => ipcRenderer.invoke("window-is-maximized"),
   onLoginSessionSaved: (fn) => {
     ipcRenderer.on("login-session-saved", (_e, data) => fn(data));
   },
@@ -42,4 +48,8 @@ contextBridge.exposeInMainWorld("buptHw", {
   getDownloadDir: () => ipcRenderer.invoke("get-download-dir"),
   setDownloadDir: (dir) => ipcRenderer.invoke("set-download-dir", dir),
   selectDownloadDir: () => ipcRenderer.invoke("select-download-dir"),
+  getTaskOverrides: () => ipcRenderer.invoke("get-task-overrides"),
+  saveTaskOverride: (taskId, patch) => ipcRenderer.invoke("save-task-override", { taskId, patch }),
+  getCoursePrefs: () => ipcRenderer.invoke("get-course-prefs"),
+  saveCoursePrefs: (prefs) => ipcRenderer.invoke("save-course-prefs", prefs),
 });

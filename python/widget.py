@@ -29,8 +29,14 @@ def run_fetch_in_thread(log_fn):
             from homework_fetcher import fetch_homework, load_config, resolve_portal_url, save_cache
 
             cfg = load_config()
-            items, course_count = fetch_homework(headless=True, cfg=cfg)
-            save_cache(items, portal_url=resolve_portal_url(cfg), course_count=course_count)
+            result = fetch_homework(headless=True, cfg=cfg)
+            if isinstance(result, tuple):
+                items, course_count = result[0], result[1]
+                courses = result[2] if len(result) > 2 else []
+                course_resources = result[3] if len(result) > 3 else {}
+            else:
+                items, course_count, courses, course_resources = result, 0, [], {}
+            save_cache(items, portal_url=resolve_portal_url(cfg), course_count=course_count, courses=courses, course_resources=course_resources)
             log_fn(f"已更新，共 {len(items)} 条")
         except Exception as e:
             log_fn(f"更新失败: {e}")

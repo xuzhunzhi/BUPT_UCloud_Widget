@@ -25,6 +25,9 @@ const STORAGE_STATE_FILENAME = "playwright_storage_state.json";
 
 const ELECTRON_PREFS_FILENAME = "electron_prefs.json";
 
+const TASK_OVERRIDES_FILENAME = "task_overrides.json";
+const COURSE_PREFS_FILENAME = "course_prefs.json";
+
 const DEFAULT_STARTUP_PREFS = {
   /** 是否注册为本机登录项（开机启动应用） */
   openAtLogin: true,
@@ -521,6 +524,57 @@ function readCacheFile() {
   }
 }
 
+function getTaskOverridesPath() {
+  return path.join(getDataDir(), TASK_OVERRIDES_FILENAME);
+}
+
+function readTaskOverrides() {
+  const p = getTaskOverridesPath();
+  if (!fs.existsSync(p)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch (_) { return {}; }
+}
+
+function saveTaskOverride(taskId, patch) {
+  const overrides = readTaskOverrides();
+  overrides[taskId] = { ...(overrides[taskId] || {}), ...patch };
+  fs.mkdirSync(getDataDir(), { recursive: true });
+  fs.writeFileSync(getTaskOverridesPath(), JSON.stringify(overrides, null, 2), "utf8");
+}
+
+function getCoursePrefsPath() {
+  return path.join(getDataDir(), COURSE_PREFS_FILENAME);
+}
+
+function readCoursePrefs() {
+  const p = getCoursePrefsPath();
+  if (!fs.existsSync(p)) return {};
+  try {
+    return JSON.parse(fs.readFileSync(p, "utf8"));
+  } catch (_) { return {}; }
+}
+
+function saveCoursePrefs(prefs) {
+  fs.mkdirSync(getDataDir(), { recursive: true });
+  fs.writeFileSync(getCoursePrefsPath(), JSON.stringify(prefs, null, 2), "utf8");
+}
+
+function applyTaskOverrides(cache) {
+  const overrides = readTaskOverrides();
+  if (!cache.items || !overrides) return cache;
+  cache.items = cache.items.map(function (item) {
+    // Use title+course as composite key
+    var key = (item.title || "") + "|" + (item.course || "");
+    var ov = overrides[key];
+    if (ov) {
+      return { ...item, ...ov, _overridden: true };
+    }
+    return item;
+  });
+  return cache;
+}
+
 function getRefreshMinutes() {
   const cfg = path.join(getDataDir(), "config.yaml");
   if (!fs.existsSync(cfg)) return DEFAULT_WIDGET_REFRESH_MINUTES;
@@ -632,6 +686,7 @@ function createMainWindow() {
     height: 640,
     minWidth: 520,
     minHeight: 420,
+    frame: false,
     show: true,
     alwaysOnTop: false,
     webPreferences: {
@@ -670,6 +725,7 @@ function createWidgetWindow() {
     height: 460,
     minWidth: 300,
     minHeight: 280,
+    frame: false,
     show: true,
     alwaysOnTop: true,
     webPreferences: {
@@ -787,7 +843,17 @@ if (!gotTheLock) {
   const startupPrefs = readElectronPrefs();
   applyOpenAtLogin(startupPrefs.openAtLogin);
 
-  ipcMain.handle("get-cache", () => readCacheFile());
+  ipcMain.handle("get-cache", () => applyTaskOverrides(readCacheFile()));
+  ipcMain.handle("get-task-overrides", () => readTaskOverrides());
+  ipcMain.handle("save-task-override", (_e, { taskId, patch }) => {
+    saveTaskOverride(taskId, patch);
+    return { ok: true };
+  });
+  ipcMain.handle("get-course-prefs", () => readCoursePrefs());
+  ipcMain.handle("save-course-prefs", (_e, prefs) => {
+    saveCoursePrefs(prefs);
+    return { ok: true };
+  });
   ipcMain.handle("get-refresh-minutes", () => getRefreshMinutes());
   ipcMain.handle("run-fetch", () => runFetch());
   ipcMain.handle("save-credentials", async (_e, { username, password }) => {
@@ -1146,6 +1212,36 @@ if (!gotTheLock) {
       loginWindow.close();
     }
     return { ok: true };
+  });
+
+  // Window controls for frameless title bar
+  ipcMain.handle("window-minimize", (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) win.minimize();
+  });
+  ipcMain.handle("window-maximize-toggle", (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) {
+      if (win.isMaximized()) win.unmaximize();
+      else win.maximize();
+    }
+  });
+  ipcMain.handle("window-close", (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) win.close();
+  });
+  ipcMain.handle("window-set-always-on-top", (e, flag) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) win.setAlwaysOnTop(!!flag);
+    return !!flag;
+  });
+  ipcMain.handle("window-get-always-on-top", (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    return win ? win.isAlwaysOnTop() : true;
+  });
+  ipcMain.handle("window-is-maximized", (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    return win ? win.isMaximized() : false;
   });
 
   ipcMain.handle("complete-onboarding", (_e, patch) => {

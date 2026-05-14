@@ -1,10 +1,8 @@
 const statusEl = document.getElementById("status");
 const listEl = document.getElementById("list");
-const btnSync = document.getElementById("btn-sync");
-const btnLogin = document.getElementById("btn-login");
-const btnHome = document.getElementById("btn-home");
 const metaTime = document.getElementById("meta-time");
 const metaRefresh = document.getElementById("meta-refresh");
+const btnSync = document.getElementById("wtitlebar-sync");
 
 function setStatus(text, isErr) {
   statusEl.textContent = text;
@@ -57,25 +55,11 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
-async function refreshLoginHint() {
-  if (!btnLogin) return;
-  try {
-    const ok = await window.buptHw.hasLoginSession();
-    btnLogin.title = ok
-      ? "已保存本机登录态，可重新登录以更新"
-      : "在客户端内打开教学空间页面登录（无需 Chromium 脚本）";
-    btnLogin.textContent = ok ? "重新登录" : "登录";
-  } catch (_) {
-    btnLogin.textContent = "登录";
-  }
-}
-
 async function loadCache() {
   try {
     const data = await window.buptHw.getCache();
     render(data);
-    setStatus("就绪");
-    await refreshLoginHint();
+    setStatus("");
   } catch (e) {
     setStatus(`读取缓存失败：${e.message}`, true);
   }
@@ -142,6 +126,14 @@ async function init() {
 
 btnSync.addEventListener("click", () => doSync());
 
+// Title bar controls
+const titlebar = document.getElementById("wtitlebar");
+const btnHome = document.getElementById("wtitlebar-home");
+const btnSyncIcon = document.getElementById("wtitlebar-sync");
+const btnPin = document.getElementById("wtitlebar-pin");
+const btnMin = document.getElementById("wtitlebar-minimize");
+const btnClose = document.getElementById("wtitlebar-close");
+
 if (btnHome) {
   btnHome.addEventListener("click", async () => {
     try {
@@ -152,22 +144,42 @@ if (btnHome) {
   });
 }
 
-if (btnLogin) {
-  btnLogin.addEventListener("click", async () => {
-    try {
-      await window.buptHw.openLoginWindow();
-      setStatus("请在登录窗口完成登录后点击「保存登录并关闭」");
-    } catch (e) {
-      setStatus(`无法打开登录窗口：${e.message}`, true);
-    }
-  });
+if (btnSyncIcon) {
+  btnSyncIcon.addEventListener("click", () => doSync());
 }
 
-if (window.buptHw.onLoginSessionSaved) {
-  window.buptHw.onLoginSessionSaved(() => {
-    refreshLoginHint();
-    setStatus("登录已保存到本机，可点击「立即同步」拉取待办");
+// Pin / unpin toggle
+async function updatePinIcon() {
+  try {
+    const pinned = await window.buptHw.windowGetAlwaysOnTop();
+    const icon = document.getElementById("pin-icon");
+    if (icon) {
+      if (pinned) {
+        icon.setAttribute("fill", "var(--accent, #5b9fd4)");
+        btnPin.title = "取消窗口置顶";
+      } else {
+        icon.setAttribute("fill", "currentColor");
+        btnPin.title = "窗口置顶";
+      }
+    }
+  } catch (_) {}
+}
+if (btnPin) {
+  btnPin.addEventListener("click", async () => {
+    try {
+      const current = await window.buptHw.windowGetAlwaysOnTop();
+      await window.buptHw.windowSetAlwaysOnTop(!current);
+      updatePinIcon();
+    } catch (_) {}
   });
+  updatePinIcon();
+}
+
+if (btnMin && window.buptHw.windowMinimize) {
+  btnMin.addEventListener("click", () => window.buptHw.windowMinimize());
+}
+if (btnClose && window.buptHw.windowClose) {
+  btnClose.addEventListener("click", () => window.buptHw.windowClose());
 }
 
 if (window.buptHw.onCacheUpdated) {

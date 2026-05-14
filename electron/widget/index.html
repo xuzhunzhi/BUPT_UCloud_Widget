@@ -9,24 +9,38 @@
     <link rel="stylesheet" href="widget.css" />
   </head>
   <body>
-    <header class="header">
-      <div class="title-wrap">
-        <h1 class="title">作业待办</h1>
-        <p class="subtitle">置顶桌面小组件 · 本地缓存</p>
+    <div class="widget-shell">
+      <!-- Custom Title Bar -->
+      <div class="wtitlebar" id="wtitlebar">
+        <div class="wtitlebar-left">
+          <button class="wtitlebar-btn wtitlebar-pin" id="wtitlebar-pin" title="切换窗口置顶">
+            <svg id="pin-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
+          </button>
+        </div>
+        <span class="wtitlebar-title">作业待办</span>
+        <div class="wtitlebar-controls">
+          <button class="wtitlebar-btn" id="wtitlebar-home" title="打开主页">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          </button>
+          <button class="wtitlebar-btn" id="wtitlebar-sync" title="立即同步">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          </button>
+          <button class="wtitlebar-btn wtitlebar-minimize" id="wtitlebar-minimize" aria-label="最小化">
+            <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="5.5" width="10" height="1" fill="currentColor"/></svg>
+          </button>
+          <button class="wtitlebar-btn wtitlebar-close" id="wtitlebar-close" aria-label="关闭">
+            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          </button>
+        </div>
       </div>
-      <div class="header-actions">
-        <button id="btn-home" type="button" class="btn">主页</button>
-        <button id="btn-login" type="button" class="btn">登录</button>
-        <button id="btn-sync" type="button" class="btn primary">立即同步</button>
-      </div>
-    </header>
-    <p id="status" class="status">载入中…</p>
-    <main id="list" class="list" aria-live="polite"></main>
-    <footer class="footer">
-      <span id="meta-time" class="meta"></span>
-      <span id="meta-refresh" class="hint"></span>
-      <span class="hint">抓取由本机 Python + Playwright 完成</span>
-    </footer>
+      <p id="status" class="status">载入中…</p>
+      <main id="list" class="list" aria-live="polite"></main>
+      <footer class="footer">
+        <span id="meta-time" class="meta"></span>
+        <span id="meta-refresh" class="hint"></span>
+        <span class="hint">抓取由本机 Python + Playwright 完成</span>
+      </footer>
+    </div>
     <script src="../shared/theme-init.js"></script>
     <script src="widget.js"></script>
   </body>

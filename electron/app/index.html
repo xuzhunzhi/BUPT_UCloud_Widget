@@ -11,6 +11,18 @@
 </head>
 <body>
   <div class="app-shell">
+    <!-- Custom Title Bar -->
+    <div class="titlebar" id="titlebar">
+      <span class="titlebar-title">UCloud Widget</span>
+      <div class="titlebar-controls">
+        <button class="titlebar-btn titlebar-minimize" id="titlebar-minimize" aria-label="最小化">
+          <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="5.5" width="10" height="1" fill="currentColor"/></svg>
+        </button>
+        <button class="titlebar-btn titlebar-close" id="titlebar-close" aria-label="关闭">
+          <svg width="12" height="12" viewBox="0 0 12 12"><path d="M1 1l10 10M11 1L1 11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </div>
     <div class="tab-viewport">
       <div class="tab-panels" id="tab-panels">
 
@@ -54,22 +66,27 @@
           <div class="tab-inner">
             <div class="tasks-header">
               <h2 class="tab-heading">待办事项</h2>
-              <button class="btn-icon" id="btn-sync-tasks" title="立即同步">&#x21BB;</button>
             </div>
 
             <div class="tasks-toolbar">
-              <select id="tasks-filter-course" class="tasks-select">
-                <option value="">全部课程</option>
-              </select>
-              <select id="tasks-filter-status" class="tasks-select">
-                <option value="">全部状态</option>
-                <option value="not-overdue">未逾期</option>
-                <option value="submitted">已提交</option>
-                <option value="overdue">已逾期</option>
-                <option value="urgent">24 小时内</option>
-                <option value="soon">3 天内</option>
-                <option value="upcoming">7 天内</option>
-              </select>
+              <button class="btn-icon" id="btn-sync-tasks" title="立即同步">&#x21BB;</button>
+              <div class="filter-btn-wrap">
+                <button class="btn-icon" id="btn-filter-popup" title="筛选条件">&#x2630;</button>
+                <div id="filter-popup" class="filter-popup" style="display:none">
+                  <select id="tasks-filter-course" class="tasks-select">
+                    <option value="">全部课程</option>
+                  </select>
+                  <select id="tasks-filter-status" class="tasks-select">
+                    <option value="">全部状态</option>
+                    <option value="not-overdue">未逾期</option>
+                    <option value="submitted">已提交</option>
+                    <option value="overdue">已逾期</option>
+                    <option value="urgent">24 小时内</option>
+                    <option value="soon">3 天内</option>
+                    <option value="upcoming">7 天内</option>
+                  </select>
+                </div>
+              </div>
             </div>
 
             <div class="tasks-summary">
@@ -114,6 +131,9 @@
             <div class="courses-header">
               <h2 class="tab-heading">课程</h2>
               <span id="courses-count" class="badge-count"></span>
+              <div style="margin-left:auto;display:flex;gap:6px">
+                <button class="btn-icon" id="btn-course-edit" title="编辑课程">&#x270E;</button>
+              </div>
             </div>
 
             <div id="courses-list" class="courses-list"></div>
@@ -121,6 +141,7 @@
             <div id="course-detail" class="course-detail" style="display:none">
               <button class="btn-icon course-detail-back" id="course-detail-back" aria-label="返回">&#x2190;</button>
               <h3 id="course-detail-name" class="course-detail-name"></h3>
+              <p id="course-detail-meta" class="course-detail-meta"></p>
               <div id="course-detail-items" class="course-detail-items"></div>
             </div>
 
@@ -162,12 +183,11 @@
               <div class="field-row">
                 <label for="settings-download-dir">下载路径</label>
                 <input type="text" id="settings-download-dir" readonly="readonly" placeholder="默认: data/attachments" style="flex:1;cursor:pointer" />
-                <button class="btn" id="settings-btn-browse-dir">浏览…</button>
               </div>
               <span class="hint" id="settings-download-hint">下载后的文件保存在此目录，点击附件链接可打开文件夹。</span>
             </div>
 
-            <div class="panel">
+            <div class="panel" id="panel-credentials">
               <p class="sub">登录凭据</p>
               <div class="field-row">
                 <label for="settings-cred-user">学号</label>
@@ -178,6 +198,9 @@
                 <input type="password" id="settings-cred-pass" placeholder="校园网密码" />
               </div>
               <span class="hint" id="settings-cred-hint"></span>
+              <div class="cred-actions">
+                <button class="btn primary" id="settings-btn-save-creds">保存凭据</button>
+              </div>
             </div>
 
             <div class="panel">
@@ -230,7 +253,6 @@
 
             <div class="foot">
               <p id="settings-status" class="status"></p>
-              <button class="btn primary" id="settings-btn-save">保存设置</button>
             </div>
           </div>
         </section>

@@ -1,3 +1,6 @@
+// Global course name overrides (loaded from prefs)
+window._globalCourseNameOverrides = {};
+
 // ===== Tab Switching Engine =====
 const tabPanels = document.getElementById("tab-panels");
 const tabBtns = document.querySelectorAll(".tab-btn");
@@ -94,12 +97,10 @@ function endSwipe() {
     } else if (swipeDeltaX < 0 && currentTab < TOTAL_TABS - 1) {
       saveScrollPosition();
       switchTab(currentTab + 1);
-    } else {
-      switchTab(currentTab);
     }
-  } else {
-    switchTab(currentTab);
+    // else: invalid direction for edge tab — do nothing
   }
+  // else: not a swipe, just a click — do nothing
 }
 
 tabPanels.addEventListener("pointerup", endSwipe);
@@ -163,7 +164,7 @@ if (window.buptHw && window.buptHw.onSwitchTab) {
       var hasSession = await window.buptHw.hasLoginSession();
       cacheStatus.textContent = hasSession ? "登录态：已保存" : "登录态：未登录";
     } catch (_) {
-      cacheStatus.textContent = "状态：就绪";
+      cacheStatus.textContent = "";
     }
   }
 
@@ -220,7 +221,7 @@ if (window.buptHw && window.buptHw.onSwitchTab) {
     });
   }
 
-  refreshHomeStats().then(function () { setHomeStatus("就绪"); });
+  refreshHomeStats().then(function () { setHomeStatus(""); });
 })();
 
 function escapeHtml(s) {
@@ -332,6 +333,7 @@ function formatDueDisplay(due) {
   function buildCourseFilter(items) {
     var seen = {};
     var courses = [];
+    var overrides = window._globalCourseNameOverrides || {};
     items.forEach(function (it) {
       var c = (it.course || "").trim();
       if (c && !seen[c]) {
@@ -340,14 +342,13 @@ function formatDueDisplay(due) {
       }
     });
     courses.sort();
-    // Keep "全部课程" option, remove old options
     while (filterCourse.options.length > 1) {
       filterCourse.remove(1);
     }
     courses.forEach(function (c) {
       var opt = document.createElement("option");
       opt.value = c;
-      opt.textContent = c;
+      opt.textContent = overrides[c] || c;
       filterCourse.appendChild(opt);
     });
   }
@@ -360,7 +361,7 @@ function formatDueDisplay(due) {
       if (courseVal && (it.course || "").trim() !== courseVal) return false;
       if (statusVal === "not-overdue" && isOverdue(it.due)) return false;
       if (statusVal === "submitted" && !it.submitted) return false;
-      if (statusVal === "overdue" && !isOverdue(it.due)) return false;
+      if (statusVal === "overdue" && (!isOverdue(it.due) || it.submitted)) return false;
       if (statusVal === "urgent") {
         var h = hoursUntil(it.due);
         if (h === null || h < 0 || h >= 24) return false;
@@ -404,7 +405,7 @@ function formatDueDisplay(due) {
       tasksList.innerHTML = "";
       tasksEmpty.style.display = "flex";
       tasksEmpty.querySelector(".empty-text").textContent = "没有匹配的作业";
-      tasksEmpty.querySelector(".empty-hint").textContent = "试试调整筛选条件或搜索关键词";
+      tasksEmpty.querySelector(".empty-hint").textContent = "试试调整筛选条件";
       tasksCount.textContent = "0 / " + allItems.length + " 条";
       return;
     }
@@ -431,12 +432,14 @@ function formatDueDisplay(due) {
       card.className = "task-card";
       if (it.submitted) {
         card.classList.add("submitted");
+        card.style.setProperty("--task-color", "var(--accent2, #7eb87c)");
       } else if (isOverdue(it.due)) {
         card.style.setProperty("--task-color", "var(--err, #f08080)");
       } else {
         var h = hoursUntil(it.due);
         if (h !== null && h < 24) card.style.setProperty("--task-color", "var(--warn, #e8a045)");
         else if (h !== null && h < 72) card.style.setProperty("--task-color", "#c9a845");
+        else card.style.setProperty("--task-color", "var(--accent, #5b9fd4)");
       }
 
       var label = urgencyLabel(it);
@@ -452,11 +455,13 @@ function formatDueDisplay(due) {
       if (it.submitted) dueCls = "normal";
       else if (isOverdue(it.due)) dueCls = "overdue";
 
+      var courseOverrides = window._globalCourseNameOverrides || {};
+      var displayCourse = (it.course && courseOverrides[it.course.trim()]) || it.course || "";
       card.innerHTML =
         '<div class="task-row">' +
           '<div class="task-info">' +
             '<p class="task-title">' + escapeHtml(it.title || "（无标题）") + "</p>" +
-            (it.course ? '<p class="task-course">' + escapeHtml(it.course) + "</p>" : "") +
+            (displayCourse ? '<p class="task-course">' + escapeHtml(displayCourse) + "</p>" : "") +
           "</div>" +
           '<div class="task-due ' + dueCls + '">' +
             dueHtml +
@@ -468,8 +473,13 @@ function formatDueDisplay(due) {
         showTaskDetail(it, card);
       });
 
+      if (window._staggerCards) {
+        card.style.animation = "fadeSlideUp 0.3s ease-out both";
+        card.style.animationDelay = (i * 30) + "ms";
+      }
       frag.appendChild(card);
     });
+    window._staggerCards = false;
 
     tasksList.innerHTML = "";
     tasksList.appendChild(frag);
@@ -486,7 +496,7 @@ function formatDueDisplay(due) {
       buildCourseFilter(allItems);
       tasksUpdated.textContent = data.updated_at ? "上次同步：" + data.updated_at : "";
       renderTasks();
-      setTasksStatus("就绪");
+      setTasksStatus("");
     }).catch(function (e) {
       setTasksStatus("读取缓存失败：" + (e.message || e), true);
       allItems = [];
@@ -549,6 +559,21 @@ function formatDueDisplay(due) {
   fixSelectOverflow(filterCourse);
   fixSelectOverflow(filterStatus);
 
+  // Filter popup toggle
+  var btnFilter = document.getElementById("btn-filter-popup");
+  var filterPopup = document.getElementById("filter-popup");
+  if (btnFilter && filterPopup) {
+    btnFilter.addEventListener("click", function (e) {
+      e.stopPropagation();
+      filterPopup.style.display = (filterPopup.style.display !== "none") ? "none" : "flex";
+    });
+    document.addEventListener("click", function (e) {
+      if (!e.target.closest(".filter-btn-wrap")) {
+        filterPopup.style.display = "none";
+      }
+    });
+  }
+
   // Listen for cache updates
   if (window.buptHw.onCacheUpdated) {
     window.buptHw.onCacheUpdated(function () {
@@ -562,6 +587,12 @@ function formatDueDisplay(due) {
     });
   }
 
+  // Listen for course prefs changes (name overrides)
+  document.addEventListener("course-prefs-changed", function () {
+    buildCourseFilter(allItems);
+    renderTasks();
+  });
+
   // ===== Task Detail View =====
   var taskDetailEl = document.getElementById("task-detail");
   var taskDetailBack = document.getElementById("task-detail-back");
@@ -571,6 +602,13 @@ function formatDueDisplay(due) {
   var taskDetailStatus = document.getElementById("task-detail-status");
 
   function showTaskDetail(item, cardEl) {
+    // Save current scroll position before switching to detail view
+    saveScrollPosition();
+    tasksList.closest(".tab-panel").scrollTop = 0;
+    // Reduce top spacer for detail view
+    var tabInner = taskDetailEl.closest(".tab-inner");
+    if (tabInner) tabInner.classList.add("detail-view");
+
     // Set transform-origin from the card position for expand animation
     if (cardEl) {
       var panelRect = taskDetailEl.closest(".tab-panel").getBoundingClientRect();
@@ -599,7 +637,7 @@ function formatDueDisplay(due) {
       metaHtml += '<span class="meta-item"><span class="meta-icon">&#x1F4DA;</span> ' + escapeHtml(item.course) + "</span>";
     }
     if (dueText) {
-      metaHtml += '<span class="meta-item"><span class="meta-icon">&#x23F3;</span> ' + escapeHtml(dueText) + "</span>";
+      metaHtml += '<span class="meta-item due-edit" title="点击修改截止时间" data-due="' + escapeHtml(item.due) + '" data-task-title="' + escapeHtml(item.title || "") + '" data-task-course="' + escapeHtml(item.course || "") + '"><span class="meta-icon">&#x23F3;</span> ' + escapeHtml(dueText) + "</span>";
     }
 
     var statusText = "";
@@ -641,11 +679,73 @@ function formatDueDisplay(due) {
     void taskDetailEl.offsetHeight; // force reflow
     taskDetailEl.style.display = "block";
     taskDetailEl.classList.add("expand");
+
+    // Wire up editable due date
+    var dueEditEl = taskDetailMeta.querySelector(".due-edit");
+    if (dueEditEl) {
+      dueEditEl.style.cursor = "pointer";
+      dueEditEl.addEventListener("click", function (e) {
+        if (dueEditEl.querySelector("input")) return; // already editing
+        var origDue = dueEditEl.getAttribute("data-due");
+        var taskTitle = dueEditEl.getAttribute("data-task-title");
+        var taskCourse = dueEditEl.getAttribute("data-task-course");
+        var input = document.createElement("input");
+        input.type = "text";
+        input.className = "due-edit-input";
+        input.value = origDue || "";
+        input.style.cssText = "background:var(--page-bg,#0c1017);border:1px solid var(--accent,#5b9fd4);border-radius:6px;padding:2px 8px;color:var(--text,#e8eef7);font-family:inherit;font-size:0.78rem;width:auto;min-width:160px;outline:none";
+        dueEditEl.textContent = "";
+        dueEditEl.appendChild(input);
+        input.focus();
+        input.select();
+
+        function saveEdit() {
+          var newDue = input.value.trim();
+          if (newDue && newDue !== origDue) {
+            var key = (taskTitle || "") + "|" + (taskCourse || "");
+            window.buptHw.saveTaskOverride(key, { due: newDue }).then(function () {
+              // Update display
+              dueEditEl.removeChild(input);
+              dueEditEl.setAttribute("data-due", newDue);
+              dueEditEl.innerHTML = '<span class="meta-icon">&#x23F3;</span> ' + escapeHtml(formatDueDisplay(newDue));
+              dueEditEl.title = "点击修改截止时间";
+              setTasksStatus("截止时间已更新");
+            }).catch(function () {
+              dueEditEl.removeChild(input);
+              dueEditEl.innerHTML = '<span class="meta-icon">&#x23F3;</span> ' + escapeHtml(formatDueDisplay(origDue || ""));
+              dueEditEl.title = "修改失败，点击重试";
+            });
+          } else {
+            dueEditEl.removeChild(input);
+            dueEditEl.innerHTML = '<span class="meta-icon">&#x23F3;</span> ' + escapeHtml(formatDueDisplay(newDue || origDue || ""));
+            dueEditEl.title = "点击修改截止时间";
+          }
+        }
+
+        input.addEventListener("blur", saveEdit);
+        input.addEventListener("keydown", function (ev) {
+          if (ev.key === "Enter") { input.blur(); }
+          if (ev.key === "Escape") {
+            dueEditEl.removeChild(input);
+            dueEditEl.innerHTML = '<span class="meta-icon">&#x23F3;</span> ' + escapeHtml(formatDueDisplay(origDue || ""));
+            dueEditEl.title = "点击修改截止时间";
+          }
+        });
+      });
+    }
   }
 
   function hideTaskDetail() {
     taskDetailEl.classList.remove("expand");
     taskDetailEl.classList.add("shrink");
+    // Restore spacer for list view
+    var tabInner = taskDetailEl.closest(".tab-inner");
+    if (tabInner) tabInner.classList.remove("detail-view");
+    var tasksPanel = tasksList.closest(".tab-panel");
+    var savedPos = scrollPositions[1] || 0;
+    var fromCourse = window._fromCourseDetail;
+    window._fromCourseDetail = false;
+    window._staggerCards = true;
     setTimeout(function () {
       taskDetailEl.style.display = "none";
       taskDetailEl.classList.remove("shrink");
@@ -654,6 +754,11 @@ function formatDueDisplay(due) {
       if (tasksSummary) tasksSummary.style.display = "";
       if (tasksHeader) tasksHeader.style.display = "";
       renderTasks();
+      if (fromCourse) {
+        switchTab(2);
+      } else {
+        if (tasksPanel) tasksPanel.scrollTop = savedPos;
+      }
     }, 220);
   }
 
@@ -715,8 +820,14 @@ function formatDueDisplay(due) {
     }
   });
 
-  // Init
-  loadTasksCache();
+  // Init: load course name overrides first, then tasks
+  window.buptHw.getCoursePrefs().then(function (prefs) {
+    window._globalCourseNameOverrides = (prefs && prefs.names) || {};
+    loadTasksCache();
+  }).catch(function () {
+    window._globalCourseNameOverrides = {};
+    loadTasksCache();
+  });
 })();
 
 // ===== Courses Tab (lazy-loaded) =====
@@ -732,6 +843,11 @@ function loadCourses() {
   var courseDetailItems = document.getElementById("course-detail-items");
   var courseDetailBack = document.getElementById("course-detail-back");
   var allCachedItems = [];
+  var _savedCourses = [];
+  var _courseResources = {};
+  var _coursePrefs = {};
+  var _editMode = false;
+  var _dragSrcIndex = -1;
 
   function setStatus(text, isErr) {
     statusCourses.textContent = text;
@@ -739,6 +855,7 @@ function loadCourses() {
   }
 
   function renderCourses(courses) {
+    _savedCourses = courses;
     if (!courses || !courses.length) {
       coursesList.innerHTML = "";
       coursesEmpty.style.display = "flex";
@@ -759,51 +876,341 @@ function loadCourses() {
       if (!it.submitted) stats[c].unsubmitted++;
     });
 
+    // Apply prefs order: sorted courses first, then new (unsorted) courses at top with badge
+    var nameOverride = _coursePrefs.names || {};
+    var colorOverride = _coursePrefs.colors || {};
+    var prefOrder = _coursePrefs.order || [];
+
+    var sorted = courses.slice().sort(function (a, b) {
+      var na = a.siteName || "";
+      var nb = b.siteName || "";
+      var ia = prefOrder.indexOf(na);
+      var ib = prefOrder.indexOf(nb);
+      if (ia !== -1 && ib !== -1) return ia - ib;
+      if (ia !== -1) return -1;
+      if (ib !== -1) return 1;
+      return 0; // keep original order for new courses
+    });
+
     var frag = document.createDocumentFragment();
-    courses.forEach(function (course) {
-      var name = course.siteName || "未知课程";
-      var initial = name.charAt(0).toUpperCase();
-      var color = stringToColor(name);
-      var s = stats[name] || { total: 0, unsubmitted: 0 };
+    sorted.forEach(function (course, i) {
+      var origName = course.siteName || "未知课程";
+      var displayName = nameOverride[origName] || origName;
+      var initial = displayName.charAt(0).toUpperCase();
+      var color = colorOverride[origName] || stringToColor(origName);
+      var s = stats[origName] || { total: 0, unsubmitted: 0 };
+      var isNew = prefOrder.indexOf(origName) === -1;
 
       var card = document.createElement("div");
       card.className = "course-card";
+      if (_editMode) card.classList.add("editing");
       card.style.setProperty("--course-color", color);
+      card.draggable = _editMode;
+
+      var teacher = course.courseTeacher || "";
+
+      // Edit mode structure: drag handle + avatar (clickable for color) + body + color button
+      var dragHandleHtml = '<span class="course-drag-handle">⠿</span>';
+
+      var avatarHtml = _editMode
+        ? '<span class="course-avatar editable" data-course="' + escapeHtml(origName) + '">' + escapeHtml(initial) + "</span>"
+        : '<span class="course-avatar">' + escapeHtml(initial) + "</span>";
+
+      var newBadgeHtml = isNew ? '<span class="course-new-badge">未排序</span>' : "";
+
+      var nameHtml = _editMode
+        ? '<p class="course-name"><span class="course-name-editable" data-course="' + escapeHtml(origName) + '">' + escapeHtml(displayName) + "</span>" + newBadgeHtml + "</p>"
+        : '<p class="course-name">' + escapeHtml(displayName) + newBadgeHtml + "</p>";
 
       card.innerHTML =
+        dragHandleHtml +
         '<div class="course-card-left">' +
-          '<span class="course-avatar">' + escapeHtml(initial) + "</span>" +
+          avatarHtml +
         "</div>" +
         '<div class="course-card-body">' +
-          '<p class="course-name">' + escapeHtml(name) + "</p>" +
-          '<p class="course-id">' + escapeHtml(course.id || "") + "</p>" +
+          nameHtml +
+          '<p class="course-id">' + escapeHtml(course.id || "") + (teacher ? ' · ' + escapeHtml(teacher) : "") + "</p>" +
           '<div class="course-stats">' +
             '<span class="course-stat">作业 ' + s.total + '</span>' +
             (s.unsubmitted > 0 ? '<span class="course-stat course-stat-pending">未交 ' + s.unsubmitted + '</span>' : '<span class="course-stat course-stat-done">已交齐</span>') +
           "</div>" +
         "</div>";
 
-      card.style.cursor = "pointer";
-      card.addEventListener("click", function () {
-        showCourseDetail(name);
-      });
+      if (!_editMode) {
+        card.style.cursor = "pointer";
+        card.addEventListener("click", function () {
+          showCourseDetail(origName, card);
+        });
+      }
 
+      if (_editMode) {
+        // Drag events
+        card.addEventListener("dragstart", function (e) {
+          _dragSrcIndex = i;
+          card.classList.add("dragging");
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", origName);
+        });
+        card.addEventListener("dragend", function () {
+          card.classList.remove("dragging");
+          document.querySelectorAll(".course-card.drag-over").forEach(function (el) {
+            el.classList.remove("drag-over");
+          });
+        });
+        card.addEventListener("dragover", function (e) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+          card.classList.add("drag-over");
+        });
+        card.addEventListener("dragleave", function () {
+          card.classList.remove("drag-over");
+        });
+        card.addEventListener("drop", function (e) {
+          e.preventDefault();
+          card.classList.remove("drag-over");
+          var fromIdx = _dragSrcIndex;
+          if (fromIdx === -1 || fromIdx === i) return;
+          // Reorder the sorted array
+          var item = sorted.splice(fromIdx, 1)[0];
+          // After removal, insert position shifts when dragging downward
+          var insertIdx = fromIdx < i ? i - 1 : i;
+          sorted.splice(insertIdx, 0, item);
+          // Save the new order
+          var newOrder = sorted.map(function (c) { return c.siteName || ""; }).filter(Boolean);
+          _coursePrefs.order = newOrder;
+          saveCoursePrefs();
+          // Re-render
+          renderCourses(courses);
+        });
+
+        // Color picker on avatar click
+        card.querySelector(".course-avatar.editable")?.addEventListener("click", function (e) {
+          e.stopPropagation();
+          showColorPicker(this, origName);
+        });
+
+        // Name editing on click
+        card.querySelector(".course-name-editable")?.addEventListener("click", function (e) {
+          e.stopPropagation();
+          startNameEdit(this, origName);
+        });
+      }
+
+      if (window._staggerCourses) {
+        card.style.animation = "fadeSlideUp 0.3s ease-out both";
+        card.style.animationDelay = (i * 40) + "ms";
+      }
       frag.appendChild(card);
     });
+    window._staggerCourses = false;
 
     coursesList.innerHTML = "";
     coursesList.appendChild(frag);
   }
 
-  function showCourseDetail(courseName) {
+  // Color presets
+  var COLOR_PRESETS = [
+    "hsl(200, 55%, 55%)", "hsl(160, 50%, 50%)", "hsl(280, 45%, 60%)",
+    "hsl(340, 55%, 60%)", "hsl(40, 60%, 55%)", "hsl(100, 45%, 50%)",
+    "hsl(20, 60%, 60%)", "hsl(300, 45%, 55%)", "hsl(180, 50%, 45%)",
+    "hsl(80, 50%, 50%)", "hsl(0, 55%, 60%)", "hsl(220, 40%, 60%)",
+    "hsl(50, 55%, 50%)", "hsl(320, 50%, 55%)", "hsl(140, 45%, 45%)",
+  ];
+
+  function showColorPicker(avatarEl, courseName) {
+    // Remove any existing color picker popup
+    var existing = document.querySelector(".color-picker-popup");
+    if (existing) existing.remove();
+
+    var popup = document.createElement("div");
+    popup.className = "color-picker-popup open";
+
+    var grid = document.createElement("div");
+    grid.className = "color-picker-grid";
+
+    var currentColor = _coursePrefs.colors && _coursePrefs.colors[courseName];
+
+    COLOR_PRESETS.forEach(function (hue) {
+      var swatch = document.createElement("div");
+      swatch.className = "color-swatch" + (hue === currentColor ? " selected" : "");
+      swatch.style.background = hue;
+      swatch.addEventListener("click", function (e) {
+        e.stopPropagation();
+        if (!_coursePrefs.colors) _coursePrefs.colors = {};
+        _coursePrefs.colors[courseName] = hue;
+        saveCoursePrefs();
+        // Re-render to show new color
+        renderCourses(_savedCourses);
+      });
+      grid.appendChild(swatch);
+    });
+
+    popup.appendChild(grid);
+    avatarEl.appendChild(popup);
+
+    // Close on click outside
+    function closePopup(e) {
+      if (!popup.contains(e.target) && e.target !== avatarEl) {
+        popup.remove();
+        document.removeEventListener("click", closePopup);
+      }
+    }
+    setTimeout(function () { document.addEventListener("click", closePopup); }, 10);
+  }
+
+  function startNameEdit(nameEl, origName) {
+    if (nameEl.querySelector("input")) return;
+    var currentName = nameEl.textContent;
+    var input = document.createElement("input");
+    input.type = "text";
+    input.className = "course-name-input";
+    input.value = currentName;
+    nameEl.textContent = "";
+    nameEl.appendChild(input);
+    input.focus();
+    input.select();
+
+    function saveName() {
+      var newName = input.value.trim();
+      if (newName && newName !== currentName) {
+        if (!_coursePrefs.names) _coursePrefs.names = {};
+        _coursePrefs.names[origName] = newName;
+        saveCoursePrefs();
+      }
+      // Restore display name
+      renderCourses(_savedCourses);
+    }
+
+    input.addEventListener("blur", saveName);
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { input.blur(); }
+      if (e.key === "Escape") {
+        nameEl.textContent = currentName;
+      }
+    });
+  }
+
+  function saveCoursePrefs() {
+    window.buptHw.saveCoursePrefs(_coursePrefs).then(function () {
+      window._globalCourseNameOverrides = _coursePrefs.names || {};
+      // Notify tasks tab to refresh display names
+      document.dispatchEvent(new CustomEvent("course-prefs-changed"));
+    }).catch(function (e) {
+      setStatus("保存课程设置失败: " + (e.message || e), true);
+    });
+  }
+
+  function formatFileSize(bytes) {
+    if (!bytes && bytes !== 0) return "";
+    bytes = Number(bytes);
+    if (isNaN(bytes) || bytes <= 0) return "";
+    var units = ["B", "KB", "MB", "GB"];
+    var i = 0;
+    var size = bytes;
+    while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+    return (i === 0 ? size : size.toFixed(1)) + " " + units[i];
+  }
+
+  function getFileIcon(suffix, name) {
+    if (!suffix && name) suffix = name.split(".").pop() || "";
+    suffix = suffix.toLowerCase();
+    var imgs = ["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg"];
+    var docs = ["doc", "docx"];
+    var sheets = ["xls", "xlsx", "csv"];
+    var slides = ["ppt", "pptx"];
+    var zips = ["zip", "rar", "7z", "gz", "tar"];
+    var vids = ["mp4", "avi", "mov", "mkv"];
+    var auds = ["mp3", "wav", "flac"];
+
+    var path, color;
+    if (imgs.includes(suffix)) {
+      path = '<rect x="2" y="3" width="16" height="14" rx="2"/><circle cx="7" cy="8" r="1.5"/><path d="M2 14l5-5 3 3 4-5 4 5"/>';
+      color = "#e67e22";
+    } else if (suffix === "pdf") {
+      path = '<path d="M4 2h8l5 5v11H4z"/><path d="M12 2v5h5"/><path d="M5.5 9v5M5.5 9h2.5a2 2 0 0 1 0 4h-2.5"/>';
+      color = "#e74c3c";
+    } else if (docs.includes(suffix) || slides.includes(suffix) || sheets.includes(suffix)) {
+      path = '<path d="M4 2h8l5 5v11H4z"/><path d="M12 2v5h5"/><path d="M6 11h8M6 14h8"/>';
+      color = "#2980b9";
+    } else if (zips.includes(suffix)) {
+      path = '<path d="M4 2h8l5 5v11H4z"/><path d="M12 2v5h5"/><path d="M7 8v6" stroke-dasharray="1.5 1.5" stroke-linecap="round"/><path d="M6 14.5l1 .5.5-1"/>';
+      color = "#3498db";
+    } else if (vids.includes(suffix)) {
+      path = '<path d="M5 4l11 6-11 6z"/>';
+      color = "#9b59b6";
+    } else if (auds.includes(suffix)) {
+      path = '<path d="M8 4v10"/><path d="M8 4h6v7"/><circle cx="6" cy="14" r="2.5"/><circle cx="12" cy="11" r="2.5"/>';
+      color = "#27ae60";
+    } else {
+      path = '<path d="M4 2h8l5 5v11H4z"/><path d="M12 2v5h5"/>';
+      color = "currentColor";
+    }
+    return '<svg class="ficon" viewBox="0 0 20 20" fill="none" stroke="' + color + '" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>';
+  }
+
+  function showCourseDetail(courseName, cardEl) {
+    // Save current scroll position before switching to detail view
+    coursesList.closest(".tab-panel").scrollTop = 0;
+    saveScrollPosition();
+    // Reduce top spacer for detail view
+    var tabInner = courseDetailEl.closest(".tab-inner");
+    if (tabInner) tabInner.classList.add("detail-view");
+
+    // Set transform-origin from the card position for expand animation
+    if (cardEl) {
+      var panelRect = courseDetailEl.closest(".tab-panel").getBoundingClientRect();
+      var cardRect = cardEl.getBoundingClientRect();
+      var originX = ((cardRect.left + cardRect.width / 2) - panelRect.left) / panelRect.width * 100;
+      var originY = ((cardRect.top + cardRect.height / 2) - panelRect.top) / panelRect.height * 100;
+      courseDetailEl.style.transformOrigin = originX + "% " + originY + "%";
+    } else {
+      courseDetailEl.style.transformOrigin = "";
+    }
+
     coursesList.style.display = "none";
     coursesEmpty.style.display = "none";
+    var coursesHeader = document.querySelector("#tab-courses .courses-header");
+    if (coursesHeader) coursesHeader.style.display = "none";
+    // Use display name from prefs if available
+    var displayName = (_coursePrefs.names && _coursePrefs.names[courseName]) || courseName;
+    courseDetailName.textContent = displayName;
+
+    // Show teacher info if available
+    var courseDetailMeta = document.getElementById("course-detail-meta");
+    var teacher = "";
+    _savedCourses.forEach(function (c) {
+      if ((c.siteName || "").trim() === courseName && c.courseTeacher) {
+        teacher = c.courseTeacher;
+      }
+    });
+    if (courseDetailMeta) {
+      courseDetailMeta.textContent = teacher ? "授课教师：" + teacher : "";
+    }
+
+    // Trigger expand animation
+    courseDetailEl.classList.remove("shrink");
+    courseDetailEl.classList.remove("expand");
+    void courseDetailEl.offsetHeight; // force reflow
     courseDetailEl.style.display = "block";
-    courseDetailName.textContent = courseName;
+    courseDetailEl.classList.add("expand");
 
     var items = allCachedItems.filter(function (it) {
       return (it.course || "").trim() === courseName;
     });
+
+    // Find siteId for this course to look up course-level resources
+    var siteId = "";
+    _savedCourses.forEach(function (c) {
+      if ((c.siteName || "").trim() === courseName) {
+        siteId = c.id;
+      }
+    });
+
+    // Use course-level resources from cache (fetched via UClass API), not homework attachments
+    var courseResources = [];
+    if (siteId && _courseResources[siteId]) {
+      courseResources = _courseResources[siteId];
+    }
 
     // Sort by due date
     items.sort(function (a, b) {
@@ -815,24 +1222,65 @@ function loadCourses() {
       return (a.title || "").localeCompare(b.title || "");
     });
 
+    // Build course detail content
+    var detailHtml = "";
+
+    // Course resources section
+    if (courseResources.length > 0) {
+      detailHtml += '<div class="course-resources">';
+      detailHtml += '<p class="course-resources-title">&#x1F4C1; 课程文件 <span class="course-resources-count">' + courseResources.length + ' 个</span></p>';
+      detailHtml += '<div class="course-resources-list">';
+      courseResources.forEach(function (res) {
+        var suffix = (res.suffix || res.resourceName.split(".").pop() || "").toLowerCase();
+        var icon = getFileIcon(suffix, res.resourceName);
+        var sizeText = formatFileSize(res.fileSize);
+        detailHtml +=
+          '<a href="#resource-dl" class="resource-download course-resource-item" ' +
+          'data-resource-id="' + escapeHtml(res.resourceId) + '" ' +
+          'data-resource-name="' + escapeHtml(res.resourceName) + '">' +
+          '<span class="file-icon">' + icon + '</span>' +
+          '<span class="file-info">' +
+          '<span class="file-name">' + escapeHtml(res.resourceName) + '</span>' +
+          '<span class="file-meta">' +
+          (suffix ? '<span class="file-type-badge">' + suffix.toUpperCase() + '</span>' : '') +
+          (sizeText ? '<span class="file-size">' + sizeText + '</span>' : '') +
+          '</span></span></a>';
+      });
+      detailHtml += '</div></div>';
+    }
+
     if (!items.length) {
-      courseDetailItems.innerHTML = '<p style="color:var(--muted,#8b9bb4);padding:20px;text-align:center">该课程暂无作业</p>';
-      setStatus(courseName + " — 暂无作业");
+      if (courseResources.length > 0) {
+        courseDetailItems.innerHTML = detailHtml;
+        setStatus(courseName + " — " + courseResources.length + " 个文件");
+        wireCourseResourceDownloads();
+      } else {
+        courseDetailItems.innerHTML = '<p style="color:var(--muted,#8b9bb4);padding:20px;text-align:center">该课程暂无作业</p>';
+        setStatus(courseName + " — 暂无作业");
+      }
       return;
     }
 
     var frag = document.createDocumentFragment();
+    // Add resources header as a non-task element if resources exist
+    if (courseResources.length > 0) {
+      var headerEl = document.createElement("div");
+      headerEl.innerHTML = detailHtml;
+      frag.appendChild(headerEl.firstElementChild);
+    }
     items.forEach(function (it) {
       var card = document.createElement("div");
       card.className = "task-card";
       if (it.submitted) {
         card.classList.add("submitted");
+        card.style.setProperty("--task-color", "var(--accent2, #7eb87c)");
       } else if (isOverdue(it.due)) {
         card.style.setProperty("--task-color", "var(--err, #f08080)");
       } else {
         var h = hoursUntil(it.due);
         if (h !== null && h < 24) card.style.setProperty("--task-color", "var(--warn, #e8a045)");
         else if (h !== null && h < 72) card.style.setProperty("--task-color", "#c9a845");
+        else card.style.setProperty("--task-color", "var(--accent, #5b9fd4)");
       }
 
       var label = urgencyLabel(it);
@@ -861,6 +1309,7 @@ function loadCourses() {
       card.style.cursor = "pointer";
       card.addEventListener("click", function () {
         // Switch to tasks tab and show detail
+        window._fromCourseDetail = true;
         saveScrollPosition();
         switchTab(1);
         // Need a small delay for the tab to render
@@ -876,20 +1325,104 @@ function loadCourses() {
 
     courseDetailItems.innerHTML = "";
     courseDetailItems.appendChild(frag);
-    setStatus(courseName + " — " + items.length + " 项作业");
+    var statusMsg = courseName + " — " + items.length + " 项作业";
+    if (courseResources.length > 0) {
+      statusMsg += " · " + courseResources.length + " 个课程文件";
+    }
+    setStatus(statusMsg);
+    wireCourseResourceDownloads();
+  }
+
+  function wireCourseResourceDownloads() {
+    courseDetailItems.querySelectorAll(".resource-download").forEach(function (link) {
+      link.addEventListener("click", function (e) {
+        e.preventDefault();
+        var rid = link.getAttribute("data-resource-id");
+        var rname = link.getAttribute("data-resource-name") || "";
+        var filePath = link.getAttribute("data-file-path");
+
+        if (filePath && window.buptHw.showInFolder) {
+          window.buptHw.showInFolder(filePath);
+          return;
+        }
+
+        if (rid && window.buptHw.downloadResource) {
+          var origHtml = link.innerHTML;
+          link.classList.add("downloading");
+          link.innerHTML = '<span class="download-status">下载中...</span>';
+          window.buptHw.downloadResource(rid, rname).then(function (result) {
+            link.classList.remove("downloading");
+            link.innerHTML = origHtml;
+            if (!result.ok) {
+              link.classList.add("download-failed");
+              setStatus('下载失败: ' + (result.error || "未知错误"), true);
+              setTimeout(function () { link.classList.remove("download-failed"); }, 3000);
+            } else {
+              link.setAttribute("data-file-path", result.filePath);
+              link.classList.add("downloaded");
+            }
+          });
+        }
+      });
+    });
   }
 
   function hideCourseDetail() {
-    courseDetailEl.style.display = "none";
+    courseDetailEl.classList.remove("expand");
+    courseDetailEl.classList.add("shrink");
+    // Restore spacer for list view
+    var tabInner = courseDetailEl.closest(".tab-inner");
+    if (tabInner) tabInner.classList.remove("detail-view");
+    var coursesHeader = document.querySelector("#tab-courses .courses-header");
+    if (coursesHeader) coursesHeader.style.display = "";
     coursesList.style.display = "";
+    window._staggerCourses = true;
+    renderCourses(_savedCourses);
     setStatus("");
+    var coursesPanel = coursesList.closest(".tab-panel");
+    if (coursesPanel && scrollPositions[2] != null) {
+      coursesPanel.scrollTop = scrollPositions[2];
+    }
+    setTimeout(function () {
+      courseDetailEl.style.display = "none";
+      courseDetailEl.classList.remove("shrink");
+    }, 250);
   }
 
   courseDetailBack.addEventListener("click", hideCourseDetail);
 
+  function loadCoursePrefs() {
+    window.buptHw.getCoursePrefs().then(function (prefs) {
+      _coursePrefs = prefs || {};
+      window._globalCourseNameOverrides = _coursePrefs.names || {};
+    }).catch(function () { _coursePrefs = {}; });
+  }
+
+  function toggleEditMode() {
+    _editMode = !_editMode;
+    var btn = document.getElementById("btn-course-edit");
+    if (btn) btn.classList.toggle("active", _editMode);
+    renderCourses(_savedCourses);
+    setStatus(_editMode ? "编辑模式：拖拽排序、点击头像换色、点击名称改名" : "");
+  }
+
+  // Wire up edit button
+  var btnEdit = document.getElementById("btn-course-edit");
+  if (btnEdit) {
+    btnEdit.addEventListener("click", toggleEditMode);
+  }
+
+  // Update prefs when cache changes (new courses might appear)
   function loadCoursesCache() {
-    window.buptHw.getCache().then(function (data) {
+    Promise.all([
+      window.buptHw.getCache(),
+      window.buptHw.getCoursePrefs()
+    ]).then(function (results) {
+      var data = results[0];
+      var prefs = results[1];
+      _coursePrefs = prefs || {};
       allCachedItems = data.items || [];
+      _courseResources = data.courseResources || {};
       var courses = data.courses || [];
       renderCourses(courses);
       if (courses.length > 0) {
@@ -1012,42 +1545,39 @@ async function loadSettings() {
   }
 }
 
-async function saveSettings() {
+async function saveCredentials() {
   var el = function (id) { return document.getElementById("settings-" + id); };
-  var btnSave = el("btn-save");
-  if (btnSave) btnSave.disabled = true;
-  setSettingsStatus("正在保存…");
+  var credUser = el("cred-user");
+  var credPass = el("cred-pass");
+  var u = credUser ? credUser.value.trim() : "";
+  var p = credPass ? credPass.value.trim() : "";
 
+  if (!u && !p) {
+    await window.buptHw.saveCredentials("", "");
+    loadedCreds = { username: "", password: "" };
+    var credHint = el("cred-hint");
+    if (credHint) credHint.textContent = "凭据已清空";
+    setSettingsStatus("凭据已清空");
+    return;
+  }
+  if (!u || !p) {
+    setSettingsStatus("学号和密码必须同时填写或同时清空", true);
+    return;
+  }
+  var r = await window.buptHw.saveCredentials(u, p);
+  if (r && !r.ok) {
+    setSettingsStatus("凭据保存失败：" + (r.error || "未知错误"), true);
+    return;
+  }
+  loadedCreds = { username: u, password: p };
+  var ch = el("cred-hint");
+  if (ch) ch.textContent = "凭据已保存，自动登录已开启";
+  setSettingsStatus("凭据已保存");
+}
+
+async function saveAllPrefs() {
+  var el = function (id) { return document.getElementById("settings-" + id); };
   try {
-    var credUser = el("cred-user");
-    var credPass = el("cred-pass");
-    var u = credUser ? credUser.value.trim() : "";
-    var p = credPass ? credPass.value.trim() : "";
-    var changed = u !== loadedCreds.username || p !== loadedCreds.password;
-
-    if (changed) {
-      if (!u && !p) {
-        await window.buptHw.saveCredentials("", "");
-        loadedCreds = { username: "", password: "" };
-        var credHint = el("cred-hint");
-        if (credHint) credHint.textContent = "凭据已清空";
-      } else if (!u || !p) {
-        setSettingsStatus("学号和密码必须同时填写或同时清空", true);
-        if (btnSave) btnSave.disabled = false;
-        return;
-      } else {
-        var r = await window.buptHw.saveCredentials(u, p);
-        if (r && !r.ok) {
-          setSettingsStatus("凭据保存失败：" + (r.error || "未知错误"), true);
-          if (btnSave) btnSave.disabled = false;
-          return;
-        }
-        loadedCreds = { username: u, password: p };
-        var ch = el("cred-hint");
-        if (ch) ch.textContent = "凭据已保存，自动登录已开启";
-      }
-    }
-
     var theme = selectedTheme();
     await window.buptHw.setTheme(theme);
 
@@ -1055,9 +1585,13 @@ async function saveSettings() {
     var sm = Math.max(1, Math.min(1440, parseInt(syncMinEl ? syncMinEl.value : "30", 10) || 30));
     await window.buptHw.setSyncIntervalMinutes(sm);
 
+    var dlDirEl = el("download-dir");
+    if (dlDirEl) {
+      await window.buptHw.setDownloadDir(dlDirEl.value.trim() || null);
+    }
+
     var startupModeEl = document.querySelector('input[name="startupOpenMode"]:checked');
     var startupOpenMode = startupModeEl ? startupModeEl.value : "home";
-
     var chkBoot = el("chk-boot");
     var chkAutosync = el("chk-autosync");
     var alertMaster = el("alert-master");
@@ -1068,12 +1602,6 @@ async function saveSettings() {
     var cool1d = el("cool-1d");
     var coolU = el("cool-u");
     var pollMin = el("poll-min");
-
-    // 保存下载路径
-    var dlDirEl = el("download-dir");
-    if (dlDirEl) {
-      await window.buptHw.setDownloadDir(dlDirEl.value.trim() || null);
-    }
 
     await window.buptHw.setStartupPrefs({
       startupOpenMode: startupOpenMode,
@@ -1088,37 +1616,25 @@ async function saveSettings() {
       alertCooldownUrgentMin: Math.max(5, parseInt(coolU ? coolU.value : "30", 10) || 30),
       alertPollMinutes: Math.max(5, Math.min(120, parseInt(pollMin ? pollMin.value : "15", 10) || 15)),
     });
-
-    setSettingsStatus("已保存。");
-  } catch (e) {
-    setSettingsStatus("保存失败：" + (e.message || e), true);
-  } finally {
-    if (btnSave) btnSave.disabled = false;
-  }
+  } catch (_) {}
 }
 
-// 下载目录浏览按钮
+// 下载目录（点击输入框浏览）
 function setupDownloadDirBrowse() {
-  var btn = document.getElementById("settings-btn-browse-dir");
   var input = document.getElementById("settings-download-dir");
-  if (!btn || !input) return;
-  btn.addEventListener("click", async function () {
-    var result = await window.buptHw.selectDownloadDir();
-    if (result.ok && result.path) {
-      input.value = result.path;
-    }
-  });
-  // 点击输入框也可以选择目录
+  if (!input) return;
   input.addEventListener("click", async function () {
     var result = await window.buptHw.selectDownloadDir();
     if (result.ok && result.path) {
       input.value = result.path;
+      saveAllPrefs();
     }
   });
 }
 
-// Theme radio listeners + save button
+// Settings auto-save + credential-specific save button
 document.addEventListener("DOMContentLoaded", function () {
+  // Theme radios auto-save
   var themeRadios = document.querySelectorAll('input[name="theme"]');
   themeRadios.forEach(function (radio) {
     radio.addEventListener("change", function () {
@@ -1126,12 +1642,51 @@ document.addEventListener("DOMContentLoaded", function () {
     });
   });
 
-  var saveBtn = document.getElementById("settings-btn-save");
-  if (saveBtn) {
-    saveBtn.addEventListener("click", saveSettings);
+  // Credential save button
+  var credBtn = document.getElementById("settings-btn-save-creds");
+  if (credBtn) {
+    credBtn.addEventListener("click", saveCredentials);
   }
 
+  // Auto-save on any settings change
+  function wireAutoSave(sel, event) {
+    var els = document.querySelectorAll(sel);
+    els.forEach(function (el) { el.addEventListener(event, saveAllPrefs); });
+  }
+  wireAutoSave('#settings-sync-minutes', 'change');
+  wireAutoSave('#settings-chk-boot', 'change');
+  wireAutoSave('#settings-chk-autosync', 'change');
+  wireAutoSave('input[name="startupOpenMode"]', 'change');
+  wireAutoSave('#settings-alert-master', 'change');
+  wireAutoSave('#settings-alert-3d', 'change');
+  wireAutoSave('#settings-alert-1d', 'change');
+  wireAutoSave('#settings-alert-u', 'change');
+  wireAutoSave('#settings-cool-3d', 'change');
+  wireAutoSave('#settings-cool-1d', 'change');
+  wireAutoSave('#settings-cool-u', 'change');
+  wireAutoSave('#settings-poll-min', 'change');
+
   setupDownloadDirBrowse();
+
+  // Title bar controls
+  var btnMin = document.getElementById("titlebar-minimize");
+  var btnClose = document.getElementById("titlebar-close");
+  if (btnMin && window.buptHw.windowMinimize) {
+    btnMin.addEventListener("click", function () { window.buptHw.windowMinimize(); });
+  }
+  if (btnClose && window.buptHw.windowClose) {
+    btnClose.addEventListener("click", function () { window.buptHw.windowClose(); });
+  }
+
+  // Double-click title bar to toggle maximize (if available)
+  var titlebar = document.getElementById("titlebar");
+  if (titlebar && window.buptHw.windowMaximizeToggle) {
+    titlebar.addEventListener("dblclick", function (e) {
+      // Ignore double-click on controls
+      if (e.target.closest(".titlebar-controls")) return;
+      window.buptHw.windowMaximizeToggle();
+    });
+  }
 });
 
 // ===== Initialize =====

@@ -808,6 +808,108 @@ def _download_attachments(
     return work_records
 
 
+def _flatten_resource_tree(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """将资源树（chapter/section 节点含 attachmentVOs）展平为文件列表。"""
+    files = []
+    for node in nodes:
+        # 提取当前节点的附件（实际文件）
+        for att in node.get("attachmentVOs") or []:
+            files.append(att)
+        # 递归处理子节点
+        for child in node.get("children") or []:
+            files.extend(_flatten_resource_tree([child]))
+    return files
+
+
+def _fetch_course_resources(
+    page,
+    context,
+    courses: list[dict[str, Any]],
+    iclass_token: str,
+) -> dict[str, list[dict[str, Any]]]:
+    """获取课程级别的资源文件。
+
+    已知的正确 API: POST /ykt-site/site-resource/tree/student?siteId={siteId}
+    使用 Blade-Auth header（值为 iClass-token cookie）。
+    返回 { site_id: [{resourceId, resourceName, fileSize, suffix}] }。
+    """
+    if not courses or not iclass_token:
+        return {}
+
+    api = context.request
+    headers = {"Blade-Auth": iclass_token, "tenant-id": "000000"}
+    base = "https://apiucloud.bupt.edu.cn"
+    endpoint = "/ykt-site/site-resource/tree/student"
+
+    result: dict[str, list[dict[str, Any]]] = {}
+
+    for course in courses:
+        sid = course.get("id", "")
+        sn = course.get("siteName", "")
+        if not sid:
+            continue
+        try:
+            resp = api.post(f"{base}{endpoint}", params={"siteId": sid}, headers=headers)
+            if resp.status == 200:
+                raw_body = resp.body()
+                data = json.loads(raw_body.decode("utf-8"))
+                if data.get("success") and data.get("data"):
+                    tree = data["data"]
+                    if isinstance(tree, list):
+                        files = _flatten_resource_tree(tree)
+                    elif isinstance(tree, dict):
+                        files = _flatten_resource_tree(tree.get("children") or tree.get("child") or [tree])
+                    else:
+                        files = []
+                    if files:
+                        result[sid] = _normalize_resources(files)
+                        info(f"[课程资源] {sn}: {len(files)} 个资源")
+                    else:
+                        info(f"[课程资源] {sn}: 该课程无资源文件")
+                else:
+                    msg = data.get("msg", data.get("message", "未知错误"))
+                    info(f"[课程资源] {sn}: 无资源数据 ({msg})")
+            else:
+                info(f"[课程资源] {sn}: HTTP {resp.status}")
+        except Exception as e:
+            warn(f"[课程资源] {sn}: 请求失败: {e}")
+            continue
+
+    total = sum(len(v) for v in result.values())
+    if result:
+        info(f"[课程资源] 共获取 {len(result)} 个课程的 {total} 个资源")
+    else:
+        info("[课程资源] 未获取到任何课程资源")
+    return result
+
+
+def _normalize_resources(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """规范化资源记录为统一格式。
+
+    处理两种输入格式：
+    - 资源树节点: {resourceName, children, attachmentVOs, ...}
+    - 附件对象 (attachmentVO): {id, resource: {name, fileSize, ext, ...}, ...}
+    """
+    normalized = []
+    for res in records:
+        # attachmentVO 的文件信息在嵌套的 resource 对象中
+        r = res.get("resource") or {}
+        normalized.append({
+            "resourceId": res.get("resourceId") or res.get("id", ""),
+            "resourceName": (
+                res.get("resourceName")
+                or r.get("name")
+                or res.get("originalName")
+                or res.get("name")
+                or res.get("fileName")
+                or "未命名文件"
+            ),
+            "fileSize": r.get("fileSize") or res.get("fileSize") or res.get("size") or "",
+            "suffix": r.get("ext") or res.get("suffix") or res.get("fileType") or res.get("ext") or "",
+        })
+    return normalized
+
+
 def fetch_homework(
     headless: bool = True,
     debug_dump: bool = False,
@@ -878,6 +980,7 @@ def fetch_homework(
                 tried_hashes: set[str] = set()
                 auto_login_attempted = False
                 saved_courses: list[dict[str, Any]] = []
+                course_resources: dict[str, list[dict[str, Any]]] = {}
 
                 for nav_url in urls_to_try:
                     # 跳过已尝试过的相同 hash
@@ -1133,6 +1236,20 @@ def fetch_homework(
                     except Exception as e:
                         warn(f"[全量作业] per-course 抓取失败: {e}")
 
+                    # ---- 课程级资源（课程本身上传的文件） ----
+                    try:
+                        cr_token = ""
+                        for c in context.cookies():
+                            if c.get("name") == "iClass-token":
+                                cr_token = c.get("value", "")
+                                break
+                        if cr_token and saved_courses:
+                            cr = _fetch_course_resources(page, context, saved_courses, cr_token)
+                            if cr:
+                                course_resources = cr
+                    except Exception as e:
+                        warn(f"[课程资源] 获取失败: {e}")
+
                     # ---- 合并 & 去重 ----
                     merged = dom_items + api_items + extra_items
                     items = _dedupe_homework_items(merged)
@@ -1198,7 +1315,7 @@ def fetch_homework(
     if max_items is not None and len(items) > max_items:
         items = items[:max_items]
 
-    return items, course_count, saved_courses
+    return items, course_count, saved_courses, course_resources
 
 
 def save_cache(
@@ -1208,17 +1325,25 @@ def save_cache(
     warning: str | None = None,
     course_count: int = 0,
     courses: list[dict[str, Any]] | None = None,
+    course_resources: dict[str, list[dict[str, Any]]] | None = None,
 ) -> None:
-    payload = {
+    payload: dict[str, Any] = {
         "schema_version": CACHE_SCHEMA_VERSION,
         "portal_url": portal_url,
         "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         "items": [asdict(x) for x in items],
         "course_count": course_count,
         "courses": [
-            {"id": c.get("id", ""), "siteName": c.get("siteName", "")}
+            {
+                "id": c.get("id", ""),
+                "siteName": c.get("siteName", ""),
+                "mainSiteName": c.get("mainSiteName", ""),
+                "courseTeacher": c.get("courseTeacher", "") or c.get("teacherName", "") or "",
+                "siteType": c.get("siteType", ""),
+            }
             for c in (courses or [])
         ],
+        "courseResources": course_resources or {},
     }
     if warning:
         payload["_warning"] = warning
