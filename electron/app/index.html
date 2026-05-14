@@ -281,7 +281,51 @@
     </nav>
   </div>
 
+  <!-- 右键菜单（全局，避免被 tab-panels 的 transform 影响 fixed 定位） -->
+  <div id="task-context-menu" class="context-menu" style="display:none">
+    <div class="context-menu-item" data-action="edit">编辑信息</div>
+    <div class="context-menu-item context-menu-item-danger" data-action="delete">删除待办</div>
+  </div>
+  <div id="task-edit-overlay" class="task-edit-overlay" style="display:none">
+    <div class="task-edit-dialog">
+      <h3>编辑待办信息</h3>
+      <div class="task-edit-field">
+        <label>标题</label>
+        <input type="text" id="task-edit-title" />
+      </div>
+      <div class="task-edit-field">
+        <label>课程</label>
+        <input type="text" id="task-edit-course" />
+      </div>
+      <div class="task-edit-field">
+        <label>截止时间</label>
+        <div class="wheel-row">
+          <div class="wheel-col">
+            <span class="wheel-label">月</span>
+            <select id="task-edit-month" class="wheel-select" size="5"></select>
+          </div>
+          <div class="wheel-col">
+            <span class="wheel-label">日</span>
+            <select id="task-edit-day" class="wheel-select" size="5"></select>
+          </div>
+          <div class="wheel-col">
+            <span class="wheel-label">时间</span>
+            <select id="task-edit-time" class="wheel-select" size="5"></select>
+          </div>
+        </div>
+      </div>
+      <div class="task-edit-actions">
+        <button class="btn" id="task-edit-cancel">取消</button>
+        <button class="btn primary" id="task-edit-save">保存</button>
+      </div>
+    </div>
+  </div>
   <script src="../shared/theme-init.js"></script>
+  <script src="shared/utils.js"></script>
+  <script src="tabs/home.js"></script>
+  <script src="tabs/tasks.js"></script>
+  <script src="tabs/courses.js"></script>
+  <script src="tabs/settings.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
