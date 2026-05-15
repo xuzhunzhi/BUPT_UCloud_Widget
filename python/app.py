@@ -57,12 +57,11 @@ def cmd_login():
     print("登录态已保存到:", user_data)
 
 
-def cmd_fetch(debug: bool):
-    from homework_fetcher import CACHE_PATH, fetch_homework, load_config, resolve_portal_url, save_cache
-
+def _do_fetch(mode: str, debug: bool):
+    from homework_fetcher import CACHE_PATH, fetch_homework, load_config, load_cache, resolve_portal_url, save_cache
     try:
         cfg = load_config()
-        result = fetch_homework(headless=True, debug_dump=debug, cfg=cfg)
+        result = fetch_homework(headless=True, debug_dump=debug, cfg=cfg, mode=mode)
         if isinstance(result, tuple):
             items, course_count = result[0], result[1]
             courses = result[2] if len(result) > 2 else []
@@ -70,27 +69,39 @@ def cmd_fetch(debug: bool):
         else:
             items, course_count, courses, course_resources = result, 0, [], {}
         warn = None
-        if len(items) == 0:
-            warn = (
-                "本次未解析到待办条目。大概率是登录态已过期（session cookie 失效），"
-                "请在应用内点击「登录」重新登录教学空间、保存登录态后再「立即同步」。"
-                "若登录后仍为空，执行 python python/app.py fetch --debug 查看 debug 文件排查。"
-            )
-        save_cache(items, portal_url=resolve_portal_url(cfg), warning=warn, course_count=course_count, courses=courses, course_resources=course_resources)
+        if mode in ("all", "homework") and len(items) == 0:
+            warn = "未解析到待办条目，可能是登录态过期，请重新登录。"
+        old = load_cache()
+        if mode == "homework":
+            save_cache(items, portal_url=resolve_portal_url(cfg), warning=warn,
+                      course_count=old.get("course_count", 0),
+                      courses=old.get("courses", []),
+                      course_resources=old.get("course_resources", {}))
+        elif mode == "courses":
+            save_cache(items or [], portal_url=resolve_portal_url(cfg), warning=None,
+                      course_count=course_count, courses=courses,
+                      course_resources=course_resources)
+        else:
+            save_cache(items, portal_url=resolve_portal_url(cfg), warning=warn,
+                      course_count=course_count, courses=courses,
+                      course_resources=course_resources)
     except (ValueError, RuntimeError) as e:
         print(f"错误: {e}", file=sys.stderr)
-        raise SystemExit(1) from e
-    print(f"已写入 {CACHE_PATH} ，共 {len(items)} 条")
-    preview_n = 80
-    for i, x in enumerate(items[:preview_n], 1):
-        line = f"{i}. {x.title} | {x.due or '-'}"
-        try:
-            print(line)
-        except UnicodeEncodeError:
-            enc = getattr(sys.stdout, "encoding", None) or "utf-8"
-            print(line.encode(enc, errors="replace").decode(enc, errors="replace"))
-    if len(items) > preview_n:
-        print(f"... 其余 {len(items) - preview_n} 条见 homework_cache.json")
+        raise SystemExit(1)
+    label = {"homework": "作业", "courses": "课程", "all": ""}.get(mode, mode)
+    print(f"已写入 {CACHE_PATH} ，共 {len(items)} 条{label}")
+
+
+def cmd_fetch(debug: bool):
+    _do_fetch("all", debug)
+
+
+def cmd_fetch_homework(debug: bool):
+    _do_fetch("homework", debug)
+
+
+def cmd_fetch_courses(debug: bool):
+    _do_fetch("courses", debug)
 
 
 def cmd_set_credentials(username: str):
@@ -182,8 +193,12 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("login", help="交互登录")
-    p_f = sub.add_parser("fetch", help="抓取作业")
+    p_f = sub.add_parser("fetch", help="抓取全部（作业+课程）")
     p_f.add_argument("--debug", action="store_true")
+    p_hw = sub.add_parser("sync-homework", help="仅同步作业（6h 频率）")
+    p_hw.add_argument("--debug", action="store_true")
+    p_cr = sub.add_parser("sync-courses", help="仅同步课程（周级频率）")
+    p_cr.add_argument("--debug", action="store_true")
     sub.add_parser("widget", help="tkinter 小组件")
     sub.add_parser("check", help="检查运行环境")
     p_cred = sub.add_parser("set-credentials", help="保存自动登录凭据（密码交互输入）")
@@ -194,6 +209,10 @@ def main():
         cmd_login()
     elif args.cmd == "fetch":
         cmd_fetch(args.debug)
+    elif args.cmd == "sync-homework":
+        cmd_fetch_homework(args.debug)
+    elif args.cmd == "sync-courses":
+        cmd_fetch_courses(args.debug)
     elif args.cmd == "widget":
         cmd_widget()
     elif args.cmd == "check":

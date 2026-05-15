@@ -917,6 +917,7 @@ def fetch_homework(
     headless: bool = True,
     debug_dump: bool = False,
     cfg: dict[str, Any] | None = None,
+    mode: str = "all",
 ) -> list[HomeworkItem]:
     cfg = load_config() if cfg is None else cfg
     target = resolve_portal_url(cfg)
@@ -1214,7 +1215,10 @@ def fetch_homework(
                                 except Exception:
                                     pass
 
-                            work_records = _fetch_all_course_work_items(page, context, courses, uid)
+                            if mode in ("all", "homework"):
+                              work_records = _fetch_all_course_work_items(page, context, courses, uid)
+                            else:
+                              work_records = []
                             if work_records:
                                 # 获取 token 用于调用详情 API
                                 detail_token = ""
@@ -1240,18 +1244,19 @@ def fetch_homework(
                         warn(f"[全量作业] per-course 抓取失败: {e}")
 
                     # ---- 课程级资源（课程本身上传的文件） ----
-                    try:
-                        cr_token = ""
-                        for c in context.cookies():
-                            if c.get("name") == "iClass-token":
-                                cr_token = c.get("value", "")
-                                break
-                        if cr_token and saved_courses:
-                            cr = _fetch_course_resources(page, context, saved_courses, cr_token)
-                            if cr:
-                                course_resources = cr
-                    except Exception as e:
-                        warn(f"[课程资源] 获取失败: {e}")
+                    if mode in ("all", "courses"):
+                      try:
+                          cr_token = ""
+                          for c in context.cookies():
+                              if c.get("name") == "iClass-token":
+                                  cr_token = c.get("value", "")
+                                  break
+                          if cr_token and saved_courses:
+                              cr = _fetch_course_resources(page, context, saved_courses, cr_token)
+                              if cr:
+                                  course_resources = cr
+                      except Exception as e:
+                          warn(f"[课程资源] 获取失败: {e}")
 
                     # ---- 合并 & 去重 ----
                     merged = dom_items + api_items + extra_items

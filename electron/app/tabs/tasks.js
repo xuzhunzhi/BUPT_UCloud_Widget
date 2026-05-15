@@ -103,17 +103,15 @@
 
     tasksEmpty.style.display = "none";
 
-    // Summary
+    // Summary: unsubmitted/total
+    var unsubmittedCount = 0;
     var overdueCount = 0;
-    var submittedCount = 0;
     sorted.forEach(function (it) {
-      if (it.submitted) submittedCount++;
-      else if (isOverdue(it.due)) overdueCount++;
+      if (!it.submitted) { unsubmittedCount++; if (isOverdue(it.due)) overdueCount++; }
     });
-    var summary = sorted.length + " 条";
-    if (overdueCount > 0) summary += "（" + overdueCount + " 已逾期）";
-    if (submittedCount > 0) summary += "（" + submittedCount + " 已提交）";
-    if (sorted.length !== allItems.length) summary += " / 筛选自 " + allItems.length + " 条";
+    var summary = unsubmittedCount + " / " + sorted.length + " 条";
+    if (overdueCount > 0) summary += "（" + overdueCount + " 逾期）";
+    if (sorted.length !== allItems.length) summary += " / 全部 " + allItems.length + " 条";
     tasksCount.textContent = summary;
 
     // Render cards

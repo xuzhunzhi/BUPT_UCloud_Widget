@@ -592,14 +592,14 @@ function getRefreshMinutes() {
   return DEFAULT_WIDGET_REFRESH_MINUTES;
 }
 
-function runFetch() {
+function runFetch(cmd = "fetch") {
   const py = getPythonPath();
   const script = getPythonAppPath();
   const env = { ...process.env, BUPT_DATA_DIR: getDataDir() };
 
   return new Promise((resolve) => {
     const logs = { stdout: "", stderr: "" };
-    const child = spawn(py, [script, "fetch"], {
+    const child = spawn(py, [script, cmd], {
       cwd: getRepoRoot(),
       env,
       windowsHide: true,
@@ -863,7 +863,9 @@ if (!gotTheLock) {
     return { ok: true };
   });
   ipcMain.handle("get-refresh-minutes", () => getRefreshMinutes());
-  ipcMain.handle("run-fetch", () => runFetch());
+  ipcMain.handle("run-fetch", () => runFetch("fetch"));
+  ipcMain.handle("run-fetch-homework", () => runFetch("sync-homework"));
+  ipcMain.handle("run-fetch-courses", () => runFetch("sync-courses"));
   ipcMain.handle("save-credentials", async (_e, { username, password }) => {
     const u = String(username || "").trim();
     const p = String(password || "").trim();

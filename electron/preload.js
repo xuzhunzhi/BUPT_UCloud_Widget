@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld("buptHw", {
   getCache: () => ipcRenderer.invoke("get-cache"),
   getRefreshMinutes: () => ipcRenderer.invoke("get-refresh-minutes"),
   runFetch: () => ipcRenderer.invoke("run-fetch"),
+  runFetchHomework: () => ipcRenderer.invoke("run-fetch-homework"),
+  runFetchCourses: () => ipcRenderer.invoke("run-fetch-courses"),
   hasLoginSession: () => ipcRenderer.invoke("has-login-session"),
   openLoginWindow: () => ipcRenderer.invoke("open-login-window"),
   openManualLoginWindow: () => ipcRenderer.invoke("open-manual-login-window"),

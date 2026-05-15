@@ -8,7 +8,8 @@
   var statCourseCount = document.getElementById("stat-course-count");
   var statTaskCount = document.getElementById("stat-task-count");
   var btnOpenWidget = document.getElementById("btn-open-widget-home");
-  var cacheUpdated = document.getElementById("cache-updated");
+  var cacheHwUpdated = document.getElementById("cache-hw-updated");
+  var cacheCrUpdated = document.getElementById("cache-cr-updated");
   var cacheStatus = document.getElementById("cache-status");
 
   function setHomeStatus(text, isErr) {
@@ -42,20 +43,15 @@
     try {
       var data = await window.buptHw.getCache();
       var items = data.items || [];
-      statTaskCount.textContent = String(items.length);
+      var unsubmitted = items.filter(function(it) { return !it.submitted; }).length;
+      statTaskCount.textContent = String(unsubmitted);
       var cc = data.course_count;
       statCourseCount.textContent = (cc != null && cc > 0) ? String(cc) : "—";
-      cacheUpdated.textContent = "上次同步：" + (data.updated_at || "—");
+      cacheHwUpdated.textContent = "待办上次同步：" + (data.homework_updated || data.updated_at || "—");
+      cacheCrUpdated.textContent = "课程上次同步：" + (data.courses_updated || data.updated_at || "—");
     } catch (_) {
       statTaskCount.textContent = "—";
       statCourseCount.textContent = "—";
-    }
-
-    try {
-      var hasSession = await window.buptHw.hasLoginSession();
-      cacheStatus.textContent = hasSession ? "登录态：已保存" : "登录态：未登录";
-    } catch (_) {
-      cacheStatus.textContent = "";
     }
   }
 

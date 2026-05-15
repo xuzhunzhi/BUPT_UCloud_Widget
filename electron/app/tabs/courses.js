@@ -624,12 +624,32 @@ function loadCourses() {
   }
 
   // Wire up edit button
+  var btnSyncCourses = document.getElementById("btn-sync-courses");
+  if (btnSyncCourses) {
+    btnSyncCourses.addEventListener("click", function () {
+      btnSyncCourses.disabled = true;
+      btnSyncCourses.classList.add("syncing");
+      setStatus("正在同步课程...");
+      window.buptHw.runFetchCourses().then(function (res) {
+        loadCoursesCache();
+        if (res.ok) setStatus("课程同步完成");
+        else setStatus("同步失败", true);
+      }).catch(function (e) {
+        setStatus("同步异常：" + (e.message || e), true);
+      }).then(function () {
+        btnSyncCourses.disabled = false;
+        btnSyncCourses.classList.remove("syncing");
+      });
+    });
+  }
+
   var btnEdit = document.getElementById("btn-course-edit");
   if (btnEdit) {
     btnEdit.addEventListener("click", toggleEditMode);
   }
 
-  // Update prefs when cache changes (new courses might appear)
+  var coursesUpdated = document.getElementById("courses-updated");
+
   function loadCoursesCache() {
     Promise.all([
       window.buptHw.getCache(),
@@ -642,11 +662,11 @@ function loadCourses() {
       _courseResources = data.courseResources || {};
       var courses = data.courses || [];
       renderCourses(courses);
-      if (courses.length > 0) {
-        setStatus("共 " + courses.length + " 门课程");
-      } else {
-        setStatus("暂无课程数据，请先同步");
+      if (coursesUpdated) {
+        coursesUpdated.textContent = data.updated_at ? "上次同步：" + data.updated_at : "";
       }
+      if (courses.length > 0) setStatus("");
+      else setStatus("暂无课程数据，请先同步");
     }).catch(function (e) {
       setStatus("读取失败：" + (e.message || e), true);
       renderCourses([]);
