@@ -439,12 +439,22 @@
           var btn = document.getElementById("task-submit-btn");
           var statusEl = document.getElementById("task-submit-status");
           var textarea = document.getElementById("task-submit-content");
-          if (!textarea.value.trim()) {
-            statusEl.textContent = "请输入作业内容";
+          var hasContent = textarea.value.trim().length > 0;
+          var hasFiles = fileList.some(function (f) { return f.uploaded; });
+          if (!hasContent && !hasFiles) {
+            statusEl.textContent = "请输入作业内容或添加附件";
             statusEl.className = "task-submit-status err";
             return;
           }
           var stillUploading = fileList.some(function (f) { return !f.uploaded && !f.error; });
+          if (stillUploading) {
+            statusEl.textContent = "附件还在上传中，请稍候...";
+            statusEl.className = "task-submit-status err";
+            return;
+          }
+          if (!hasContent && hasFiles) {
+            textarea.value = "（仅提交附件）";
+          }
           if (stillUploading) {
             statusEl.textContent = "附件还在上传中，请稍候...";
             statusEl.className = "task-submit-status err";

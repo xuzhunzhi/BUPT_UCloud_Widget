@@ -1142,19 +1142,17 @@ if (!gotTheLock) {
         method: "POST",
         headers: {
           "Blade-Auth": token,
-          "Authorization": auth.authorization || "Basic c3dvcmQ6c3dvcmRfc2VjcmV0",
-          "Tenant-Id": auth.tenant_id || "000000",
           "Content-Type": "multipart/form-data; boundary=" + boundary,
-          "Content-Length": String(body.length),
         },
         body: body,
       });
 
+      const rawBody = await result.text();
       let data;
-      try { data = JSON.parse(result.body); } catch (_) { data = result.body; }
+      try { data = JSON.parse(rawBody); } catch (_) { data = rawBody; }
       const fileUrl = (data && data.data) || "";
-      appLog("[附件] 上传结果: status=" + result.statusCode + " fileUrl=" + (fileUrl ? fileUrl.slice(0, 50) : "empty") + " body=" + String(result.body || "").slice(0, 200));
-      return { ok: result.statusCode >= 200 && result.statusCode < 300 && !!fileUrl, fileUrl, data };
+      appLog("[附件] 上传结果: status=" + result.status + " fileUrl=" + (fileUrl ? fileUrl.slice(0, 50) : "empty"));
+      return { ok: result.status >= 200 && result.status < 300 && !!fileUrl, fileUrl, data };
     } catch (e) {
       appLog("[附件] 上传失败: " + (e.message || e));
       return { ok: false, error: e.message || String(e) };
@@ -1194,10 +1192,11 @@ if (!gotTheLock) {
         body: payload,
       });
 
+      const rawBody = await result.text();
       let data;
-      try { data = JSON.parse(result.body); } catch (_) { data = result.body; }
-      const ok = result.statusCode >= 200 && result.statusCode < 300 && (!data || data.success !== false);
-      return { ok, status: result.statusCode, data };
+      try { data = JSON.parse(rawBody); } catch (_) { data = rawBody; }
+      const ok = result.status >= 200 && result.status < 300 && (!data || data.success !== false);
+      return { ok, status: result.status, data };
     } catch (e) {
       appLog("[提交] 提交失败: " + (e.message || e));
       return { ok: false, error: e.message || String(e) };
