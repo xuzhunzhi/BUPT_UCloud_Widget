@@ -978,6 +978,28 @@ if (!gotTheLock) {
       return { auto_login: false, username: "", password: "" };
     }
   });
+  ipcMain.handle("get-user-info", () => {
+    try {
+      const authPath = path.join(getDataDir(), "auth_tokens.json");
+      if (!fs.existsSync(authPath)) return { ok: false, error: "no token" };
+      const auth = JSON.parse(fs.readFileSync(authPath, "utf8"));
+      const token = auth.iclass_token;
+      if (!token) return { ok: false, error: "no token" };
+      // Decode JWT payload (base64url)
+      const parts = token.split(".");
+      if (parts.length < 2) return { ok: false, error: "invalid token" };
+      const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+      return {
+        ok: true,
+        realName: payload.real_name || "",
+        avatar: payload.avatar || "",
+        studentId: payload.user_name || "",
+      };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
   ipcMain.handle("get-startup-prefs", () => {
     let loginItem = {};
     try {

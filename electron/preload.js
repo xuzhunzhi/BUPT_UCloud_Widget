@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld("buptHw", {
   submitHomework: (params) => ipcRenderer.invoke("submit-homework", params),
   uploadAttachment: (params) => ipcRenderer.invoke("upload-attachment", params),
   selectFiles: () => ipcRenderer.invoke("select-files"),
+  getUserInfo: () => ipcRenderer.invoke("get-user-info"),
   getDownloadDir: () => ipcRenderer.invoke("get-download-dir"),
   setDownloadDir: (dir) => ipcRenderer.invoke("set-download-dir", dir),
   selectDownloadDir: () => ipcRenderer.invoke("select-download-dir"),

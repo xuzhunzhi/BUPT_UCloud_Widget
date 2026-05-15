@@ -7,8 +7,6 @@
   var userId = document.getElementById("user-id");
   var statCourseCount = document.getElementById("stat-course-count");
   var statTaskCount = document.getElementById("stat-task-count");
-  var btnSyncHome = document.getElementById("btn-sync-home");
-  var btnSwitchUser = document.getElementById("btn-switch-user");
   var btnOpenWidget = document.getElementById("btn-open-widget-home");
   var cacheUpdated = document.getElementById("cache-updated");
   var cacheStatus = document.getElementById("cache-status");
@@ -21,7 +19,16 @@
   async function refreshHomeStats() {
     try {
       var creds = await window.buptHw.getCredentialsConfig();
-      if (creds && creds.username) {
+      var info = await window.buptHw.getUserInfo();
+      if (info && info.ok && info.realName) {
+        userName.textContent = info.realName;
+        userId.textContent = "学号 " + (info.studentId || (creds && creds.username) || "");
+        if (info.avatar) {
+          userAvatar.innerHTML = '<img src="' + info.avatar + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover" />';
+        } else {
+          userAvatar.textContent = (info.realName || "?").charAt(0);
+        }
+      } else if (creds && creds.username) {
         userName.textContent = creds.username;
         userId.textContent = "学号 " + creds.username;
         userAvatar.textContent = creds.username.charAt(0).toUpperCase();
@@ -51,35 +58,6 @@
       cacheStatus.textContent = "";
     }
   }
-
-  async function doHomeSync() {
-    btnSyncHome.disabled = true;
-    btnSyncHome.classList.add("syncing");
-    setHomeStatus("正在同步（启动 Python 抓取）…");
-    try {
-      var res = await window.buptHw.runFetch();
-      var data = await window.buptHw.getCache();
-      var n = (data.items || []).length;
-      if (res.ok) {
-        setHomeStatus("同步完成，共 " + n + " 条");
-      } else {
-        var tail = (res.logs && (res.logs.stderr || res.logs.stdout)) || res.error || "";
-        setHomeStatus("同步失败（退出码 " + res.code + "）。" + tail.slice(0, 200), true);
-      }
-      await refreshHomeStats();
-    } catch (e) {
-      setHomeStatus("同步异常：" + (e.message || e), true);
-    } finally {
-      btnSyncHome.disabled = false;
-      btnSyncHome.classList.remove("syncing");
-    }
-  }
-
-  btnSyncHome.addEventListener("click", doHomeSync);
-
-  btnSwitchUser.addEventListener("click", function () {
-    try { window.buptHw.openLoginWindow(); } catch (_) {}
-  });
 
   btnOpenWidget.addEventListener("click", function () {
     try {

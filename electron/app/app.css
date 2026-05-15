@@ -461,6 +461,19 @@ body {
 .stat-value { font-size: 1.4rem; font-weight: 700; }
 .stat-label { font-size: 0.75rem; color: var(--muted, #8b9bb4); }
 
+.widget-btn-side {
+  flex-shrink: 0;
+  width: 36px;
+  padding: 10px 6px;
+  font-size: 0.7rem;
+  writing-mode: vertical-rl;
+  letter-spacing: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-color: color-mix(in srgb, var(--accent2, #7eb87c) 40%, transparent);
+}
+
 .action-row {
   display: flex;
   flex-wrap: wrap;
