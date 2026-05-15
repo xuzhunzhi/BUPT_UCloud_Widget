@@ -179,6 +179,8 @@
 
     tasksList.innerHTML = "";
     tasksList.appendChild(frag);
+
+    updateRestoreUI();
   }
 
   function loadTasksCache() {
@@ -255,18 +257,72 @@
   fixSelectOverflow(filterCourse);
   fixSelectOverflow(filterStatus);
 
-  // Filter popup toggle
+  // Filter popup toggle (with animation)
   var btnFilter = document.getElementById("btn-filter-popup");
   var filterPopup = document.getElementById("filter-popup");
+  function closeFilterPopup() {
+    if (filterPopup.style.display === "none") return;
+    filterPopup.classList.add("closing");
+    filterPopup.addEventListener("animationend", function handler() {
+      filterPopup.removeEventListener("animationend", handler);
+      filterPopup.classList.remove("closing");
+      filterPopup.style.display = "none";
+    });
+  }
+  function openFilterPopup() {
+    filterPopup.classList.remove("closing");
+    filterPopup.style.display = "flex";
+  }
   if (btnFilter && filterPopup) {
     btnFilter.addEventListener("click", function (e) {
       e.stopPropagation();
-      filterPopup.style.display = (filterPopup.style.display !== "none") ? "none" : "flex";
+      if (filterPopup.style.display !== "none") {
+        closeFilterPopup();
+      } else {
+        openFilterPopup();
+      }
     });
     document.addEventListener("click", function (e) {
       if (!e.target.closest(".filter-btn-wrap")) {
-        filterPopup.style.display = "none";
+        closeFilterPopup();
       }
+    });
+  }
+
+  // Restore deleted items (inside filter popup)
+  function updateRestoreUI() {
+    var section = document.getElementById("restore-section");
+    var listEl = document.getElementById("restore-list");
+    if (!section || !listEl) return;
+    var deletedKeys = Object.keys(_taskOverrides).filter(function (k) { return _taskOverrides[k].deleted; });
+    section.style.display = deletedKeys.length > 0 ? "" : "none";
+
+    var allDeleted = [];
+    // Gather from overrides (may include items not in current cache)
+    deletedKeys.forEach(function (k) {
+      var parts = k.split("|");
+      var found = false;
+      (allItems || []).forEach(function (it) {
+        var key = (it.title || "") + "|" + (it.course || "");
+        if (key === k) { allDeleted.push({ title: it.title, key: k }); found = true; }
+      });
+      if (!found) allDeleted.push({ title: parts[0] || "未知", key: k });
+    });
+
+    listEl.innerHTML = allDeleted.map(function (it) {
+      return '<div class="restore-row"><span class="restore-row-title">' + escapeHtml(it.title || "") + '</span><button class="btn btn-restore" data-key="' + escapeHtml(it.key) + '">恢复</button></div>';
+    }).join("");
+
+    listEl.querySelectorAll(".btn-restore").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var k = btn.getAttribute("data-key");
+        delete _taskOverrides[k];
+        window.buptHw.saveTaskOverride(k, { deleted: null });
+        renderTasks();
+        updateRestoreUI();
+        setTasksStatus("已恢复");
+      });
     });
   }
 
@@ -612,6 +668,8 @@
 
   function showTaskContextMenu(x, y, item) {
     contextMenuTarget = item;
+    var toggleEl = document.getElementById("ctx-toggle-submit");
+    if (toggleEl) toggleEl.textContent = item.submitted ? "标记未提交" : "标记已提交";
     contextMenu.style.display = "block";
     contextMenu.style.left = x + "px";
     contextMenu.style.top = y + "px";
@@ -640,6 +698,15 @@
       hideContextMenu();
       renderTasks();
       setTasksStatus("已删除：" + delTitle);
+    } else if (action === "toggle-submit") {
+      var key = (contextMenuTarget.title || "") + "|" + (contextMenuTarget.course || "");
+      var newSubmitted = !contextMenuTarget.submitted;
+      _taskOverrides[key] = { submitted: newSubmitted };
+      contextMenuTarget.submitted = newSubmitted;
+      window.buptHw.saveTaskOverride(key, { submitted: newSubmitted });
+      hideContextMenu();
+      renderTasks();
+      setTasksStatus(newSubmitted ? "已标记为提交" : "已标记为未提交");
     } else if (action === "edit") {
       var target = contextMenuTarget;
       hideContextMenu();
@@ -749,6 +816,7 @@
         if (ov.title) it.title = ov.title;
         if (ov.course) it.course = ov.course;
         if (ov.due) it.due = ov.due;
+        if (ov.submitted !== undefined) it.submitted = ov.submitted;
       }
       return true;
     });

@@ -13,7 +13,8 @@
   <div class="app-shell">
     <!-- Custom Title Bar -->
     <div class="titlebar" id="titlebar">
-      <span class="titlebar-title">UCloud Widget</span>
+      <span class="titlebar-title" id="titlebar-static">UCloud Widget</span>
+	      <span class="titlebar-title-dynamic" id="titlebar-dynamic" style="opacity:0"></span>
       <div class="titlebar-controls">
         <button class="titlebar-btn titlebar-minimize" id="titlebar-minimize" aria-label="最小化">
           <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="5.5" width="10" height="1" fill="currentColor"/></svg>
@@ -62,7 +63,7 @@
         </section>
 
         <!-- 待办 Tab -->
-        <section class="tab-panel" id="tab-tasks">
+        <section class="tab-panel" id="tab-tasks" data-title="待办事项">
           <div class="tab-inner">
             <div class="tasks-header">
               <h2 class="tab-heading">待办事项</h2>
@@ -85,6 +86,11 @@
                     <option value="soon">3 天内</option>
                     <option value="upcoming">7 天内</option>
                   </select>
+                  <div id="restore-section" class="restore-section" style="display:none">
+                    <div class="restore-divider"></div>
+                    <span class="restore-label">已删除</span>
+                    <div id="restore-list" class="restore-list"></div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -126,7 +132,7 @@
         </section>
 
         <!-- 课程 Tab -->
-        <section class="tab-panel" id="tab-courses">
+        <section class="tab-panel" id="tab-courses" data-title="课程">
           <div class="tab-inner">
             <div class="courses-header">
               <h2 class="tab-heading">课程</h2>
@@ -156,7 +162,7 @@
         </section>
 
         <!-- 设置 Tab -->
-        <section class="tab-panel" id="tab-settings">
+        <section class="tab-panel" id="tab-settings" data-title="设置">
           <div class="tab-inner">
             <h2 class="tab-heading">设置</h2>
 
@@ -284,6 +290,7 @@
   <!-- 右键菜单（全局，避免被 tab-panels 的 transform 影响 fixed 定位） -->
   <div id="task-context-menu" class="context-menu" style="display:none">
     <div class="context-menu-item" data-action="edit">编辑信息</div>
+    <div class="context-menu-item" data-action="toggle-submit" id="ctx-toggle-submit">标记已提交</div>
     <div class="context-menu-item context-menu-item-danger" data-action="delete">删除待办</div>
   </div>
   <div id="task-edit-overlay" class="task-edit-overlay" style="display:none">

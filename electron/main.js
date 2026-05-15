@@ -538,7 +538,13 @@ function readTaskOverrides() {
 
 function saveTaskOverride(taskId, patch) {
   const overrides = readTaskOverrides();
-  overrides[taskId] = { ...(overrides[taskId] || {}), ...patch };
+  const merged = { ...(overrides[taskId] || {}), ...patch };
+  Object.keys(merged).forEach(k => { if (merged[k] == null) delete merged[k]; });
+  if (Object.keys(merged).length === 0) {
+    delete overrides[taskId];
+  } else {
+    overrides[taskId] = merged;
+  }
   fs.mkdirSync(getDataDir(), { recursive: true });
   fs.writeFileSync(getTaskOverridesPath(), JSON.stringify(overrides, null, 2), "utf8");
 }
@@ -686,6 +692,8 @@ function createMainWindow() {
     height: 640,
     minWidth: 520,
     minHeight: 420,
+    maxWidth: 1100,
+    maxHeight: 800,
     frame: false,
     show: true,
     alwaysOnTop: false,

@@ -639,7 +639,17 @@ body {
   gap: 8px;
   min-width: 200px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.35);
-  animation: fadeIn 0.12s ease-out;
+  animation: filterIn 0.15s ease-out;
+}
+@keyframes filterIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.filter-popup.closing {
+  animation: filterOut 0.12s ease-in forwards;
+}
+@keyframes filterOut {
+  to { opacity: 0; transform: translateY(-4px) scale(0.96); }
 }
 
 .filter-popup .tasks-select {
@@ -1645,6 +1655,7 @@ body {
 }
 .task-submit-textarea {
   width: 100%;
+  max-width: 100%;
   padding: 12px;
   font-size: 0.82rem;
   font-family: inherit;
@@ -1655,6 +1666,7 @@ body {
   outline: none;
   resize: vertical;
   min-height: 100px;
+  max-height: 300px;
 }
 .task-submit-textarea:focus { border-color: var(--accent, #5b9fd4); }
 .task-submit-status {
@@ -1697,3 +1709,40 @@ body {
   background: none; border: none; cursor: pointer;
 }
 .task-submit-file-remove:hover { color: var(--err, #f08080); }
+
+/* ===== Restore (inside filter popup) ===== */
+.restore-divider {
+  height: 1px;
+  background: var(--border, #2d3a4d);
+  margin: 8px 0;
+}
+.restore-label {
+  font-size: 0.72rem;
+  color: var(--muted, #8b9bb4);
+  display: block;
+  margin-bottom: 6px;
+}
+.restore-list {
+  max-height: 160px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.restore-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.restore-row-title {
+  flex: 1;
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btn-restore {
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
