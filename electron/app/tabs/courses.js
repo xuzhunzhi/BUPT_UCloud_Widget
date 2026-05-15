@@ -322,8 +322,8 @@ function loadCourses() {
 
   function showCourseDetail(courseName, cardEl) {
     // Save current scroll position before switching to detail view
-    coursesList.closest(".tab-panel").scrollTop = 0;
     saveScrollPosition();
+    coursesList.closest(".tab-panel").scrollTop = 0;
     // Reduce top spacer for detail view
     var tabInner = courseDetailEl.closest(".tab-inner");
     if (tabInner) tabInner.classList.add("detail-view");
@@ -343,9 +343,27 @@ function loadCourses() {
     coursesEmpty.style.display = "none";
     var coursesHeader = document.querySelector("#tab-courses .courses-header");
     if (coursesHeader) coursesHeader.style.display = "none";
+    var coursesToolbar = document.querySelector("#tab-courses .courses-toolbar");
+    if (coursesToolbar) coursesToolbar.style.display = "none";
+    var coursesSummary = document.querySelector("#tab-courses .courses-summary");
+    if (coursesSummary) coursesSummary.style.display = "none";
     // Use display name from prefs if available
     var displayName = (_coursePrefs.names && _coursePrefs.names[courseName]) || courseName;
     courseDetailName.textContent = displayName;
+
+    // Count unsubmitted/total for this course
+    var courseUnsubmitted = 0;
+    var courseTotal = 0;
+    allCachedItems.forEach(function (it) {
+      if ((it.course || "").trim() === courseName) {
+        courseTotal++;
+        if (!it.submitted) courseUnsubmitted++;
+      }
+    });
+    var countEl = document.getElementById("course-detail-count");
+    if (countEl) {
+      countEl.textContent = courseTotal > 0 ? courseUnsubmitted + " 未交 / " + courseTotal + " 总计" : "";
+    }
 
     // Show teacher info if available
     var courseDetailMeta = document.getElementById("course-detail-meta");
@@ -356,7 +374,9 @@ function loadCourses() {
       }
     });
     if (courseDetailMeta) {
-      courseDetailMeta.textContent = teacher ? "授课教师：" + teacher : "";
+      var metaText = teacher ? "授课教师：" + teacher : "";
+      courseDetailMeta.textContent = metaText;
+      courseDetailMeta.style.display = metaText ? "" : "none";
     }
 
     // Trigger expand animation
@@ -542,23 +562,26 @@ function loadCourses() {
   function hideCourseDetail() {
     courseDetailEl.classList.remove("expand");
     courseDetailEl.classList.add("shrink");
-    // Restore spacer for list view
     var tabInner = courseDetailEl.closest(".tab-inner");
     if (tabInner) tabInner.classList.remove("detail-view");
-    var coursesHeader = document.querySelector("#tab-courses .courses-header");
-    if (coursesHeader) coursesHeader.style.display = "";
-    coursesList.style.display = "";
-    window._staggerCourses = true;
-    renderCourses(_savedCourses);
-    setStatus("");
-    var coursesPanel = coursesList.closest(".tab-panel");
-    if (coursesPanel && scrollPositions[2] != null) {
-      coursesPanel.scrollTop = scrollPositions[2];
-    }
     setTimeout(function () {
       courseDetailEl.style.display = "none";
       courseDetailEl.classList.remove("shrink");
-    }, 250);
+      var coursesHeader = document.querySelector("#tab-courses .courses-header");
+      if (coursesHeader) coursesHeader.style.display = "";
+      var coursesToolbar = document.querySelector("#tab-courses .courses-toolbar");
+      if (coursesToolbar) coursesToolbar.style.display = "";
+      var coursesSummary = document.querySelector("#tab-courses .courses-summary");
+      if (coursesSummary) coursesSummary.style.display = "";
+      coursesList.style.display = "";
+      window._staggerCourses = true;
+      renderCourses(_savedCourses);
+      setStatus("");
+      var coursesPanel = coursesList.closest(".tab-panel");
+      if (coursesPanel && scrollPositions[2] != null) {
+        coursesPanel.scrollTop = scrollPositions[2];
+      }
+    }, 200);
   }
 
   courseDetailBack.addEventListener("click", hideCourseDetail);

@@ -61,6 +61,66 @@ tabBtns.forEach(function (btn) {
   });
 });
 
+// ===== iOS Large Title Engine =====
+var titleDynamic = document.getElementById("titlebar-dynamic");
+var titleStatic = document.getElementById("titlebar-static");
+var LARGE_TITLE_RANGE = 76;
+var _activeScrollPanel = null;
+var _activeHeading = null;
+var _onScroll = null;
+
+function updateTitleForTab(index) {
+  var panel = document.getElementById(TAB_IDS[index]);
+  var heading = panel && panel.querySelector(".tab-heading");
+  var title = panel && panel.getAttribute("data-title");
+
+  if (_activeScrollPanel && _onScroll) {
+    _activeScrollPanel.removeEventListener("scroll", _onScroll);
+  }
+  _activeScrollPanel = panel;
+  _activeHeading = heading;
+
+  document.querySelectorAll(".tab-heading").forEach(function (h) {
+    h.style.transform = "";
+  });
+
+  if (!heading) {
+    titleStatic.classList.remove("fade-out");
+    titleDynamic.style.opacity = "0";
+    _onScroll = null;
+    return;
+  }
+
+  titleDynamic.textContent = title || "";
+
+  _onScroll = function () {
+    var st = panel.scrollTop;
+    var p = Math.min(st / LARGE_TITLE_RANGE, 1);
+    var scale = 1 - p * 0.38;
+    var translateY = -p * 42;
+    heading.style.transform = "translateY(" + translateY + "px) scale(" + scale + ")";
+    heading.style.opacity = 1 - p * 0.6;
+    if (p > 0.4) {
+      titleStatic.classList.add("fade-out");
+      titleDynamic.style.opacity = p;
+    } else {
+      titleStatic.classList.remove("fade-out");
+      titleDynamic.style.opacity = "0";
+    }
+  };
+
+  _onScroll();
+  panel.addEventListener("scroll", _onScroll, { passive: true });
+}
+
+var _origSwitchTab = switchTab;
+switchTab = function (index, instant) {
+  _origSwitchTab(index, instant);
+  updateTitleForTab(index);
+};
+
+updateTitleForTab(0);
+
 // ===== Swipe (Pointer Events) =====
 var swipeStartX = 0;
 var swipeDeltaX = 0;
