@@ -180,55 +180,188 @@ function loadCourses() {
     coursesList.appendChild(frag);
   }
 
-  // Color presets
-  var COLOR_PRESETS = [
-    "hsl(200, 55%, 55%)", "hsl(160, 50%, 50%)", "hsl(280, 45%, 60%)",
-    "hsl(340, 55%, 60%)", "hsl(40, 60%, 55%)", "hsl(100, 45%, 50%)",
-    "hsl(20, 60%, 60%)", "hsl(300, 45%, 55%)", "hsl(180, 50%, 45%)",
-    "hsl(80, 50%, 50%)", "hsl(0, 55%, 60%)", "hsl(220, 40%, 60%)",
-    "hsl(50, 55%, 50%)", "hsl(320, 50%, 55%)", "hsl(140, 45%, 45%)",
+
+  // ===== Color Picker Modal =====
+  var cpOverlay = document.getElementById("color-picker-overlay");
+  var cpPreview = document.getElementById("cp-preview");
+  var cpCurrentColor = "";
+  var cpCourseName = "";
+  var cpPresetGrid = document.getElementById("cp-preset-grid");
+  var cpRecentGrid = document.getElementById("cp-recent-grid");
+
+  var PRESETS = [
+    "hsl(200,55%,55%)","hsl(160,50%,50%)","hsl(280,45%,60%)","hsl(340,55%,60%)","hsl(40,60%,55%)",
+    "hsl(100,45%,50%)","hsl(20,60%,60%)","hsl(300,45%,55%)","hsl(180,50%,45%)","hsl(80,50%,50%)",
+    "hsl(0,55%,60%)","hsl(220,40%,60%)","hsl(50,55%,50%)","hsl(320,50%,55%)","hsl(140,45%,45%)",
+    "hsl(260,50%,50%)","hsl(30,55%,50%)","hsl(190,45%,55%)","hsl(350,50%,55%)","hsl(120,40%,45%)",
   ];
 
-  function showColorPicker(avatarEl, courseName) {
-    // Remove any existing color picker popup
-    var existing = document.querySelector(".color-picker-popup");
-    if (existing) existing.remove();
+  PRESETS.forEach(function (h) {
+    var s = document.createElement("div");
+    s.className = "cp-swatch";
+    s.style.background = h;
+    s.addEventListener("click", function () { selectColor(h); });
+    cpPresetGrid.appendChild(s);
+  });
 
-    var popup = document.createElement("div");
-    popup.className = "color-picker-popup open";
-
-    var grid = document.createElement("div");
-    grid.className = "color-picker-grid";
-
-    var currentColor = _coursePrefs.colors && _coursePrefs.colors[courseName];
-
-    COLOR_PRESETS.forEach(function (hue) {
-      var swatch = document.createElement("div");
-      swatch.className = "color-swatch" + (hue === currentColor ? " selected" : "");
-      swatch.style.background = hue;
-      swatch.addEventListener("click", function (e) {
-        e.stopPropagation();
-        if (!_coursePrefs.colors) _coursePrefs.colors = {};
-        _coursePrefs.colors[courseName] = hue;
-        saveCoursePrefs();
-        // Re-render to show new color
-        renderCourses(_savedCourses);
-      });
-      grid.appendChild(swatch);
+  function updatePreview(color) {
+    cpPreview.style.background = color;
+    cpCurrentColor = color;
+    cpPresetGrid.querySelectorAll(".cp-swatch").forEach(function (el) {
+      el.classList.toggle("selected", el.style.background === color);
     });
-
-    popup.appendChild(grid);
-    avatarEl.appendChild(popup);
-
-    // Close on click outside
-    function closePopup(e) {
-      if (!popup.contains(e.target) && e.target !== avatarEl) {
-        popup.remove();
-        document.removeEventListener("click", closePopup);
-      }
+    var m = color.match(/hsl\(\s*(\d+)\s*,\s*(\d+)%\s*,\s*(\d+)%\s*\)/);
+    if (m) {
+      document.getElementById("cp-h").value = document.getElementById("cp-h-num").value = m[1];
+      document.getElementById("cp-s").value = document.getElementById("cp-s-num").value = m[2];
+      document.getElementById("cp-l").value = document.getElementById("cp-l-num").value = m[3];
+      updateRGBFromHSL(parseInt(m[1]), parseInt(m[2]), parseInt(m[3]));
+      document.getElementById("cp-hex").value = hslToHex(parseInt(m[1]), parseInt(m[2]), parseInt(m[3]));
     }
-    setTimeout(function () { document.addEventListener("click", closePopup); }, 10);
+    updateRecentSwatches();
   }
+
+  function selectColor(color) {
+    updatePreview(color);
+    if (!_coursePrefs.colors) _coursePrefs.colors = {};
+    _coursePrefs.colors[cpCourseName] = color;
+    saveCoursePrefs();
+    renderCourses(_savedCourses);
+    addRecentColor(color);
+  }
+
+  function hslToRgb(h, s, l) {
+    s /= 100; l /= 100;
+    var a = s * Math.min(l, 1 - l);
+    var f = function (n) { var k = (n + h / 30) % 12; return l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1); };
+    return [Math.round(f(0)*255), Math.round(f(8)*255), Math.round(f(4)*255)];
+  }
+
+  function updateRGBFromHSL(h, s, l) {
+    var rgb = hslToRgb(h, s, l);
+    document.getElementById("cp-r").value = document.getElementById("cp-r-num").value = rgb[0];
+    document.getElementById("cp-g").value = document.getElementById("cp-g-num").value = rgb[1];
+    document.getElementById("cp-b").value = document.getElementById("cp-b-num").value = rgb[2];
+  }
+
+  function hslToHex(h, s, l) {
+    var rgb = hslToRgb(h, s, l);
+    return rgb.map(function (v) { return v.toString(16).padStart(2, "0"); }).join("");
+  }
+
+  function syncRGB() {
+    var r = +document.getElementById("cp-r").value;
+    var g = +document.getElementById("cp-g").value;
+    var b = +document.getElementById("cp-b").value;
+    document.getElementById("cp-r-num").value = r;
+    document.getElementById("cp-g-num").value = g;
+    document.getElementById("cp-b-num").value = b;
+    var nr = r/255, ng = g/255, nb = b/255;
+    var max = Math.max(nr,ng,nb), min = Math.min(nr,ng,nb);
+    var l = (max+min)/2, s = 0, h = 0;
+    if (max !== min) {
+      s = l > 0.5 ? (max-min)/(2-max-min) : (max-min)/(max+min);
+      h = max === nr ? (ng-nb)/(max-min)+(ng<nb?6:0) : max === ng ? (nb-nr)/(max-min)+2 : (nr-ng)/(max-min)+4;
+      h *= 60;
+    }
+    document.getElementById("cp-h").value = document.getElementById("cp-h-num").value = Math.round(h);
+    document.getElementById("cp-s").value = document.getElementById("cp-s-num").value = Math.round(s*100);
+    document.getElementById("cp-l").value = document.getElementById("cp-l-num").value = Math.round(l*100);
+    var color = "hsl("+Math.round(h)+","+Math.round(s*100)+"%,"+Math.round(l*100)+"%)";
+    cpPreview.style.background = color;
+    cpCurrentColor = color;
+    document.getElementById("cp-hex").value = hslToHex(Math.round(h), Math.round(s*100), Math.round(l*100));
+  }
+
+  function syncHSL() {
+    var h = +document.getElementById("cp-h").value;
+    var s = +document.getElementById("cp-s").value;
+    var l = +document.getElementById("cp-l").value;
+    document.getElementById("cp-h-num").value = h;
+    document.getElementById("cp-s-num").value = s;
+    document.getElementById("cp-l-num").value = l;
+    document.getElementById("cp-hex").value = hslToHex(h, s, l);
+    var color = "hsl("+h+","+s+"%,"+l+"%)";
+    cpPreview.style.background = color;
+    cpCurrentColor = color;
+    updateRGBFromHSL(h, s, l);
+  }
+
+  function syncHEX() {
+    var hex = document.getElementById("cp-hex").value.replace("#","").trim();
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return;
+    var r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
+    document.getElementById("cp-r").value = document.getElementById("cp-r-num").value = r;
+    document.getElementById("cp-g").value = document.getElementById("cp-g-num").value = g;
+    document.getElementById("cp-b").value = document.getElementById("cp-b-num").value = b;
+    syncRGB();
+  }
+
+  var RECENT_COLORS = [];
+  function loadRecentColors() {
+    try { RECENT_COLORS = JSON.parse(localStorage.getItem("cp_recent") || "[]"); } catch(_) { RECENT_COLORS = []; }
+  }
+  function addRecentColor(color) {
+    RECENT_COLORS = RECENT_COLORS.filter(function (c) { return c !== color; });
+    RECENT_COLORS.unshift(color);
+    if (RECENT_COLORS.length > 10) RECENT_COLORS.pop();
+    try { localStorage.setItem("cp_recent", JSON.stringify(RECENT_COLORS)); } catch(_) {}
+  }
+  function updateRecentSwatches() {
+    cpRecentGrid.innerHTML = "";
+    RECENT_COLORS.forEach(function (c) {
+      var s = document.createElement("div");
+      s.className = "cp-swatch";
+      s.style.background = c;
+      s.addEventListener("click", function () { selectColor(c); });
+      cpRecentGrid.appendChild(s);
+    });
+  }
+  loadRecentColors();
+
+  document.querySelectorAll("#color-picker-overlay .cp-tab").forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      document.querySelectorAll("#color-picker-overlay .cp-tab").forEach(function (t) { t.classList.remove("active"); });
+      tab.classList.add("active");
+      var name = tab.getAttribute("data-tab");
+      document.querySelectorAll("#color-picker-overlay .cp-panel").forEach(function (p) { p.style.display = "none"; });
+      var panel = document.getElementById("cp-panel-" + name);
+      if (panel) panel.style.display = "";
+    });
+  });
+
+  ["r","g","b"].forEach(function (ch) {
+    var range = document.getElementById("cp-"+ch), num = document.getElementById("cp-"+ch+"-num");
+    range.addEventListener("input", syncRGB);
+    num.addEventListener("change", function () { range.value = num.value; syncRGB(); });
+  });
+  ["h","s","l"].forEach(function (ch) {
+    var range = document.getElementById("cp-"+ch), num = document.getElementById("cp-"+ch+"-num");
+    range.addEventListener("input", syncHSL);
+    num.addEventListener("change", function () { range.value = num.value; syncHSL(); });
+  });
+  document.getElementById("cp-hex").addEventListener("input", syncHEX);
+
+  document.getElementById("cp-cancel").addEventListener("click", function () { cpOverlay.style.display = "none"; });
+  cpOverlay.addEventListener("click", function (e) { if (e.target === cpOverlay) cpOverlay.style.display = "none"; });
+  document.getElementById("cp-close").addEventListener("click", function () { cpOverlay.style.display = "none"; });
+  document.getElementById("cp-apply").addEventListener("click", function () {
+    if (!_coursePrefs.colors) _coursePrefs.colors = {};
+    _coursePrefs.colors[cpCourseName] = cpCurrentColor;
+    addRecentColor(cpCurrentColor);
+    saveCoursePrefs();
+    renderCourses(_savedCourses);
+    cpOverlay.style.display = "none";
+  });
+
+  function showColorPicker(avatarEl, courseName) {
+    cpCourseName = courseName;
+    var current = (_coursePrefs.colors && _coursePrefs.colors[courseName]) || "hsl(200,55%,55%)";
+    updatePreview(current);
+    updateRecentSwatches();
+    cpOverlay.style.display = "flex";
+  }
+
 
   function startNameEdit(nameEl, origName) {
     if (nameEl.querySelector("input")) return;
@@ -676,20 +809,22 @@ function loadCourses() {
   function loadCoursesCache() {
     Promise.all([
       window.buptHw.getCache(),
+      window.buptHw.getCourseCache(),
       window.buptHw.getCoursePrefs()
     ]).then(function (results) {
-      var data = results[0];
-      var prefs = results[1];
+      var hwData = results[0];
+      var crData = results[1];
+      var prefs = results[2];
       _coursePrefs = prefs || {};
-      allCachedItems = data.items || [];
-      _courseResources = data.courseResources || {};
-      var courses = data.courses || [];
+      allCachedItems = hwData.items || [];
+      _courseResources = (crData && crData.courseResources) || {};
+      var courses = (crData && crData.courses) || [];
       renderCourses(courses);
       if (coursesUpdated) {
-        coursesUpdated.textContent = data.updated_at ? "上次同步：" + data.updated_at : "";
+        coursesUpdated.textContent = (crData && crData.updated_at) ? "上次同步：" + crData.updated_at : "";
       }
       if (courses.length > 0) setStatus("");
-      else setStatus("暂无课程数据，请先同步");
+      else setStatus("暂无课程数据，请先同步（点击 ↻）");
     }).catch(function (e) {
       setStatus("读取失败：" + (e.message || e), true);
       renderCourses([]);

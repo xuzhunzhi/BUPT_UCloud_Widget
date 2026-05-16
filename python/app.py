@@ -58,7 +58,9 @@ def cmd_login():
 
 
 def _do_fetch(mode: str, debug: bool):
-    from homework_fetcher import CACHE_PATH, fetch_homework, load_config, load_cache, resolve_portal_url, save_cache
+    from homework_fetcher import (CACHE_PATH, COURSE_CACHE_PATH, fetch_homework,
+                                   load_config, load_cache, load_course_cache,
+                                   resolve_portal_url, save_cache, save_course_cache)
     try:
         cfg = load_config()
         result = fetch_homework(headless=True, debug_dump=debug, cfg=cfg, mode=mode)
@@ -71,25 +73,17 @@ def _do_fetch(mode: str, debug: bool):
         warn = None
         if mode in ("all", "homework") and len(items) == 0:
             warn = "未解析到待办条目，可能是登录态过期，请重新登录。"
-        old = load_cache()
-        if mode == "homework":
-            save_cache(items, portal_url=resolve_portal_url(cfg), warning=warn,
-                      course_count=old.get("course_count", 0),
-                      courses=old.get("courses", []),
-                      course_resources=old.get("course_resources", {}))
-        elif mode == "courses":
-            save_cache(items or [], portal_url=resolve_portal_url(cfg), warning=None,
-                      course_count=course_count, courses=courses,
-                      course_resources=course_resources)
-        else:
-            save_cache(items, portal_url=resolve_portal_url(cfg), warning=warn,
-                      course_count=course_count, courses=courses,
-                      course_resources=course_resources)
+        if mode in ("all", "homework"):
+            save_cache(items, portal_url=resolve_portal_url(cfg), warning=warn)
+        if mode in ("all", "courses"):
+            save_course_cache(courses, course_count=course_count, course_resources=course_resources)
     except (ValueError, RuntimeError) as e:
         print(f"错误: {e}", file=sys.stderr)
         raise SystemExit(1)
-    label = {"homework": "作业", "courses": "课程", "all": ""}.get(mode, mode)
-    print(f"已写入 {CACHE_PATH} ，共 {len(items)} 条{label}")
+    if mode in ("all", "homework"):
+        print(f"已写入 {CACHE_PATH} ，共 {len(items)} 条作业")
+    if mode in ("all", "courses"):
+        print(f"已写入 {COURSE_CACHE_PATH} ，{course_count} 门课程")
 
 
 def cmd_fetch(debug: bool):

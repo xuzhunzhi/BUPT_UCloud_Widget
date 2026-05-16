@@ -42,6 +42,7 @@ from paths import DATA_DIR, SCRIPT_DIR
 
 CONFIG_PATH = DATA_DIR / "config.yaml"
 CACHE_PATH = DATA_DIR / "homework_cache.json"
+COURSE_CACHE_PATH = DATA_DIR / "course_cache.json"
 EXAMPLE_CONFIG = SCRIPT_DIR / "config.example.yaml"
 # 由 Electron 内登录页导出，供 Playwright 复用 cookies（避免单独开 Chromium 登录）
 STORAGE_STATE_PATH = DATA_DIR / "playwright_storage_state.json"
@@ -1331,15 +1332,30 @@ def save_cache(
     *,
     portal_url: str = "",
     warning: str | None = None,
-    course_count: int = 0,
-    courses: list[dict[str, Any]] | None = None,
-    course_resources: dict[str, list[dict[str, Any]]] | None = None,
+    updated: str = "",
 ) -> None:
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
     payload: dict[str, Any] = {
         "schema_version": CACHE_SCHEMA_VERSION,
         "portal_url": portal_url,
-        "updated_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "items": [asdict(x) for x in items],
+        "updated_at": updated or now,
+        "items": [asdict(x) if not isinstance(x, dict) else x for x in items],
+    }
+    if warning:
+        payload["_warning"] = warning
+    CACHE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def save_course_cache(
+    courses: list[dict[str, Any]],
+    course_count: int = 0,
+    course_resources: dict[str, list[dict[str, Any]]] | None = None,
+    updated: str = "",
+) -> None:
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
+    payload: dict[str, Any] = {
+        "schema_version": CACHE_SCHEMA_VERSION,
+        "updated_at": updated or now,
         "course_count": course_count,
         "courses": [
             {
@@ -1353,9 +1369,13 @@ def save_cache(
         ],
         "courseResources": course_resources or {},
     }
-    if warning:
-        payload["_warning"] = warning
-    CACHE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    COURSE_CACHE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_course_cache() -> dict[str, Any]:
+    if not COURSE_CACHE_PATH.is_file():
+        return {"updated_at": "", "courses": [], "course_count": 0, "courseResources": {}}
+    return json.loads(COURSE_CACHE_PATH.read_text(encoding="utf-8"))
 
 
 def load_cache() -> dict[str, Any]:

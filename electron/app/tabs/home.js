@@ -42,13 +42,14 @@
 
     try {
       var data = await window.buptHw.getCache();
+      var crData = await window.buptHw.getCourseCache();
       var items = data.items || [];
       var unsubmitted = items.filter(function(it) { return !it.submitted; }).length;
       statTaskCount.textContent = String(unsubmitted);
-      var cc = data.course_count;
-      statCourseCount.textContent = (cc != null && cc > 0) ? String(cc) : "—";
-      cacheHwUpdated.textContent = "待办上次同步：" + (data.homework_updated || data.updated_at || "—");
-      cacheCrUpdated.textContent = "课程上次同步：" + (data.courses_updated || data.updated_at || "—");
+      var cc = (crData && crData.course_count) || 0;
+      statCourseCount.textContent = (cc > 0) ? String(cc) : "—";
+      cacheHwUpdated.textContent = "待办上次同步：" + (data.updated_at || "—");
+      cacheCrUpdated.textContent = "课程上次同步：" + ((crData && crData.updated_at) || "—");
     } catch (_) {
       statTaskCount.textContent = "—";
       statCourseCount.textContent = "—";

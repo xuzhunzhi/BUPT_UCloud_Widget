@@ -851,7 +851,15 @@ if (!gotTheLock) {
   const startupPrefs = readElectronPrefs();
   applyOpenAtLogin(startupPrefs.openAtLogin);
 
+  function readCourseCacheFile() {
+    const p = path.join(getDataDir(), "course_cache.json");
+    if (!fs.existsSync(p)) return { updated_at: "", courses: [], course_count: 0, courseResources: {} };
+    try { return JSON.parse(fs.readFileSync(p, "utf8")); }
+    catch (e) { return { updated_at: "", courses: [], course_count: 0, courseResources: {} }; }
+  }
+
   ipcMain.handle("get-cache", () => applyTaskOverrides(readCacheFile()));
+  ipcMain.handle("get-course-cache", () => readCourseCacheFile());
   ipcMain.handle("get-task-overrides", () => readTaskOverrides());
   ipcMain.handle("save-task-override", (_e, { taskId, patch }) => {
     saveTaskOverride(taskId, patch);

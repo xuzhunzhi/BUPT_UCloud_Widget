@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("buptHw", {
   getCache: () => ipcRenderer.invoke("get-cache"),
+  getCourseCache: () => ipcRenderer.invoke("get-course-cache"),
   getRefreshMinutes: () => ipcRenderer.invoke("get-refresh-minutes"),
   runFetch: () => ipcRenderer.invoke("run-fetch"),
   runFetchHomework: () => ipcRenderer.invoke("run-fetch-homework"),
